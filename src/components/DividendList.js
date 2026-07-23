@@ -67,23 +67,6 @@ function DividendList() {
     }));
   };
 
-  // Function to load demo data as fallback
-  const loadDemoData = () => {
-    console.log('Loading demo dividend data');
-    const demoTransactions = [
-      { date: '2026-04-01', narration: 'Dividends - Year 2025', ref: '2025DV17891', dividend: 1400.00, paid: 0.00, runningAmt: 1400.00 },
-      { date: '2026-04-01', narration: 'Withholding Tax (WHT)', ref: 'WHT2025DV', dividend: 0.00, paid: 70.00, runningAmt: 1330.00 },
-      { date: '2026-05-04', narration: 'Share Capital Transfer', ref: 'J4546', dividend: 0.00, paid: 1330.00, runningAmt: 0.00 }
-    ];
-    
-    setDividendTransactions(demoTransactions);
-    setTotals({
-      totalDividends: 1400.00,
-      totalPaid: 1400.00,
-      netDividend: 0.00
-    });
-  };
-
   // Fetch header configuration
   const fetchHeaderConfig = async (token) => {
     try {
@@ -192,23 +175,10 @@ function DividendList() {
           if (cachedProfile) {
             setMemberData(JSON.parse(cachedProfile));
           } else {
-            // Use fallback member data from the API response you shared
-            setMemberData({
-              id: 1143,
-              accNo: memberNumber || 'MS967',
-              holdersName: 'ANGOSTO MOSHI',
-              postalAddress: '',
-              idNo: '38968424',
-              emailAdd: 'angostomoshi@gmail.com',
-              tel1: '0758533049',
-              nok1: 'EUNICE SYOKAU',
-              nok2: '',
-              nok3: ''
-            });
+            setError('Failed to fetch member data');
           }
         }
-        
-        // *** CORRECT ENDPOINT - Using singular 'dividend' not 'dividends' ***
+
         const dividendUrl = `/api/v1/dividend/${memberNumber}`;
         console.log('Fetching dividend data from:', dividendUrl);
         
@@ -227,72 +197,24 @@ function DividendList() {
             const dividendData = await dividendResponse.json();
             console.log('Dividend data received:', dividendData);
             processDividendData(dividendData);
-            
           } else {
             const errorText = await dividendResponse.text();
             console.error(`Dividend endpoint returned ${dividendResponse.status}:`, errorText);
-            
-            // If 403 or other error, try with a different approach
-            if (dividendResponse.status === 403) {
-              console.log('Got 403, trying alternative endpoint...');
-              const altUrl = `/api/v1/dividend/MS967`;
-              const altResponse = await fetch(altUrl, {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                }
-              });
-              
-              if (altResponse.ok) {
-                const altData = await altResponse.json();
-                console.log('Alternative endpoint succeeded:', altData);
-                processDividendData(altData);
-              } else {
-                throw new Error(`Alternative endpoint also failed: ${altResponse.status}`);
-              }
-            } else {
-              throw new Error(`Dividend fetch failed: ${dividendResponse.status}`);
-            }
+            setError('We could not fetch dividend data for this member right now.');
+            setDividendTransactions([]);
+            setTotals({ totalDividends: 0, totalPaid: 0, netDividend: 0 });
           }
         } catch (err) {
           console.error('Error in dividend fetch:', err);
-          // Use the exact data you provided as fallback
-          const exactApiResponse = [
-            {
-              inputDate: "2026-04-01",
-              dividend: 1400.0,
-              runningTotal: 1400.0,
-              paid: 0.0,
-              narration: "Dividends",
-              refNo: "2025DV17891"
-            },
-            {
-              inputDate: "2026-04-01",
-              dividend: 0.0,
-              runningTotal: 1330.0,
-              paid: 70.0,
-              narration: "WHT",
-              refNo: "WHT2025DV"
-            },
-            {
-              inputDate: "2026-05-04",
-              dividend: 0.0,
-              runningTotal: 0.0,
-              paid: 1330.0,
-              narration: "share capital",
-              refNo: "J4546"
-            }
-          ];
-          processDividendData(exactApiResponse);
-          setError('Using cached dividend data. Live data unavailable.');
+          setError('Network error. Unable to fetch dividend data.');
+          setDividendTransactions([]);
+          setTotals({ totalDividends: 0, totalPaid: 0, netDividend: 0 });
         }
-        
+
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('Network error. Please check your connection.');
-        loadDemoData();
-        
+
         // Try to use cached member data
         const cachedProfile = localStorage.getItem('memberProfile');
         if (cachedProfile) {

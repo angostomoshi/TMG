@@ -442,6 +442,10 @@ const LOCAL_ENDPOINTS = [
 const LOCAL_ENDPOINT_PREFIXES = [
   '/instant/',
   '/loan-applications/',
+  '/guarantor/',
+  '/dividend/',
+  '/shareCapital/',
+  '/savings/',
 ];
 
 // Endpoints that must go to the Spring Boot backend (port 8080)
@@ -883,6 +887,165 @@ app.get('/api/v1/member/:memberNo', async (req, res) => {
     return res.status(500).json({ message: 'Unable to fetch member profile right now.' });
   }
 });
+
+// ============================================
+// LOCAL ENDPOINT: GUARANTOR LIST
+// ============================================
+app.get('/api/v1/guarantor/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching guarantor list for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT loan_no, date as cur_date, lpurpose as loan_purpose, member_name,
+              loan_amount as lamount, amt_guaranteed, balance as outstanding, gtype as guarantor_type
+       FROM guarantors_view
+       WHERE upper(trim(mem_no)) = $1
+       ORDER BY date DESC NULLS LAST`,
+      [memberNo]
+    );
+
+    return res.json({
+      success: true,
+      data: result.rows.map((row) => ({
+        curDate: row.cur_date,
+        loanNo: row.loan_no,
+        loanPurpose: row.loan_purpose,
+        memberName: row.member_name,
+        lamount: Number(row.lamount || 0),
+        amountGuaranteed: Number(row.amt_guaranteed || 0),
+        outstanding: Number(row.outstanding || 0),
+        guarantorType: row.guarantor_type,
+      })),
+    });
+  } catch (error) {
+    console.error('Failed to fetch guarantor list:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch guarantor data right now.' });
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: DIVIDEND STATEMENT
+// ============================================
+app.get('/api/v1/dividend/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching dividend statement for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
+       FROM ac_dividends_payable
+       WHERE account_no = $1
+       ORDER BY date ASC NULLS LAST, id ASC`,
+      [memberNo]
+    );
+
+    const data = result.rows.map((row, index) => ({
+      inputDate: row.date,
+      narration: row.item || 'Dividend Payment',
+      refNo: row.reference_no || `DIV${index + 1}`,
+      dividend: Number(row.credit || 0),
+      paid: Number(row.debit || 0),
+      runningTotal: Number(row.balance || 0),
+    }));
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to fetch dividend statement:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch dividend data right now.' });
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: SHARE CAPITAL STATEMENT
+// ============================================
+app.get('/api/v1/shareCapital/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching share capital statement for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
+       FROM ac_shares_ledger
+       WHERE account_no = $1
+       ORDER BY date ASC NULLS LAST, id ASC`,
+      [memberNo]
+    );
+
+    const data = result.rows.map((row, index) => ({
+      date: row.date,
+      item: row.item,
+      narration: row.item,
+      refNo: row.reference_no || `SH${index + 1}`,
+      debit: Number(row.debit || 0),
+      credit: Number(row.credit || 0),
+      runningAmt: Number(row.balance || 0),
+    }));
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to fetch share capital statement:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch share capital data right now.' });
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: SAVINGS (WITHDRAWABLE DEPOSITS) STATEMENT
+// ============================================
+app.get('/api/v1/savings/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching savings statement for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const accountResult = await dbPool.query(
+      `SELECT acc_no FROM pb_wdeposit_register WHERE share_accno = $1`,
+      [memberNo]
+    );
+
+    if (accountResult.rows.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+    const savingsAccNo = accountResult.rows[0].acc_no;
+
+    const result = await dbPool.query(
+      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
+       FROM ac_wdeposit_payable
+       WHERE account_no = $1
+       ORDER BY date ASC NULLS LAST`,
+      [savingsAccNo]
+    );
+
+    const data = result.rows.map((row, index) => ({
+      inputDate: row.date,
+      narration: row.item || 'Savings Transaction',
+      refNo: row.reference_no || `SAV${index + 1}`,
+      savings: Number(row.credit || 0) - Number(row.debit || 0),
+      runningAmt: Number(row.balance || 0),
+    }));
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to fetch savings statement:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch savings data right now.' });
+  }
+});
+
 // ============================================
 // LOCAL ENDPOINT: CHANGE PASSWORD
 // ============================================
@@ -1286,7 +1449,7 @@ app.post('/api/v1/loan/apply', async (req, res) => {
       `SELECT
          COALESCE((SELECT SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
                    FROM ac_shares_ledger
-                   WHERE account_no = $1), 0) AS savings_balance,
+                   WHERE account_no = $1), 0) AS shares_ledger_balance,
          COALESCE((SELECT SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
                    FROM ac_shares_capital
                    WHERE account_no = $1), 0) AS share_capital,
@@ -1304,10 +1467,10 @@ app.post('/api/v1/loan/apply', async (req, res) => {
     );
 
     const eligibility = eligibilityResult.rows[0] || {};
-    const savingsBalance = Number(eligibility.savings_balance || 0);
+    const sharesLedgerBalance = Number(eligibility.shares_ledger_balance || 0);
     const shareCapital = Number(eligibility.share_capital || 0);
     const activeInstantBalance = Number(eligibility.active_instant_balance || 0);
-    const savingsBasedLimit = savingsBalance * 3;
+    const shareCapitalBasedLimit = sharesLedgerBalance * 3;
 
     if (shareCapital < minimumShareCapital) {
       await client.query('ROLLBACK');
@@ -1327,21 +1490,21 @@ app.post('/api/v1/loan/apply', async (req, res) => {
       });
     }
 
-    if (savingsBalance < amount) {
+    if (sharesLedgerBalance < amount) {
       await client.query('ROLLBACK');
       return res.status(403).json({
-        message: `Your savings balance is KES ${formatKES(savingsBalance)}. To apply for this instant loan, your savings should be at least KES ${formatKES(amount)}.`,
-        code: 'INSUFFICIENT_SAVINGS',
-        eligibility: { savingsBalance, requestedAmount: amount },
+        message: `Your share capital balance is KES ${formatKES(sharesLedgerBalance)}. To apply for this instant loan, your share capital should be at least KES ${formatKES(amount)}.`,
+        code: 'INSUFFICIENT_SHARE_CAPITAL_BALANCE',
+        eligibility: { sharesLedgerBalance, requestedAmount: amount },
       });
     }
 
-    if (amount > savingsBasedLimit) {
+    if (amount > shareCapitalBasedLimit) {
       await client.query('ROLLBACK');
       return res.status(403).json({
-        message: `Based on your savings of KES ${formatKES(savingsBalance)}, your maximum eligible loan is KES ${formatKES(savingsBasedLimit)}. For higher amounts, please contact the Sacco office.`,
-        code: 'SAVINGS_MULTIPLE_EXCEEDED',
-        eligibility: { savingsBalance, savingsBasedLimit, requestedAmount: amount },
+        message: `Based on your share capital of KES ${formatKES(sharesLedgerBalance)}, your maximum eligible loan is KES ${formatKES(shareCapitalBasedLimit)}. For higher amounts, please contact the Sacco office.`,
+        code: 'SHARE_CAPITAL_MULTIPLE_EXCEEDED',
+        eligibility: { sharesLedgerBalance, shareCapitalBasedLimit, requestedAmount: amount },
       });
     }
 

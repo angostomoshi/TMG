@@ -157,46 +157,16 @@ function GuarantorList() {
           }
         }
         
-        // Fetch guarantor data - try multiple possible endpoints
-        let guarantorResponse = null;
-        let guarantorData = null;
-        
-        const possibleEndpoints = [
-          `/api/v1/guarantor/${memberNumber}`,
-          `/api/v1/guarantors/${memberNumber}`,
-          `/api/v1/member/${memberNumber}/guarantors`,
-          `/api/v1/guarantor/list/${memberNumber}`,
-          `/api/v1/guarantor/statement/${memberNumber}`,
-          `/api/v1/loans/guaranteed/${memberNumber}`
-        ];
-        
-        for (const endpoint of possibleEndpoints) {
-          try {
-            const url = `https://memberportal.metro-sacco.com${endpoint}`;
-            console.log(`Trying guarantor endpoint: ${url}`);
-            
-            const response = await fetch(url, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              }
-            });
-            
-            if (response.ok) {
-              guarantorResponse = response;
-              console.log(`Success with endpoint: ${endpoint}`);
-              break;
-            } else if (response.status === 404) {
-              console.log(`Endpoint ${endpoint} returned 404, trying next...`);
-            } else {
-              console.log(`Endpoint ${endpoint} returned ${response.status}`);
-            }
-          } catch (err) {
-            console.log(`Error with endpoint ${endpoint}:`, err.message);
+        // Fetch guarantor data
+        const guarantorResponse = await fetch(`/api/v1/guarantor/${memberNumber}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           }
-        }
-        
+        });
+        let guarantorData = null;
+
         if (guarantorResponse && guarantorResponse.ok) {
           guarantorData = await guarantorResponse.json();
           console.log('Guarantor data received:', guarantorData);
