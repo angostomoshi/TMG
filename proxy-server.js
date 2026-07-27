@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -39,12 +40,15 @@ app.use((req, res, next) => {
 });
 
 // Database connection
+if (!process.env.DB_PASSWORD) {
+  throw new Error('DB_PASSWORD environment variable is required.');
+}
 const dbPool = new Pool({
   host: process.env.DB_HOST || '192.168.4.10',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'metrosacco',
   user: process.env.DB_USER || 'centre',
-  password: process.env.DB_PASSWORD || 'centre123',
+  password: process.env.DB_PASSWORD,
   ssl: false,
   connectionTimeoutMillis: 10000,
 });
@@ -59,7 +63,10 @@ dbPool.connect((err) => {
 
 const LIVE_API_BASE = process.env.LIVE_API_BASE || 'http://192.168.4.10:8080/api/v1';
 const SPRING_API_BASE = process.env.SPRING_API_BASE || 'http://192.168.4.10:8080/api/v1';
-const PROXY_JWT_SECRET = process.env.JWT_SECRET || 'metro-sacco-portal-secret';
+const PROXY_JWT_SECRET = process.env.JWT_SECRET;
+if (!PROXY_JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required.');
+}
 
 function isProxyIssuedAuthorization(authHeader) {
   if (!authHeader) return false;
@@ -1529,13 +1536,13 @@ app.post('/api/v1/loan/apply', async (req, res) => {
 
     const year = new Date().getFullYear();
     const nextLoanResult = await client.query(
-      `SELECT COALESCE(MAX(split_part(loan_no, '/', 1)::integer), 0) + 1 AS next_no
+      `SELECT COALESCE(MAX(split_part(split_part(loan_no, '/', 1), 'IL-', 2)::integer), 0) + 1 AS next_no
        FROM pb_saccoloan
        WHERE loan_no ~ $1`,
-      [`^[0-9]+/${year}$`]
+      [`^IL-[0-9]+/${year}$`]
     );
 
-    const loanNo = `${nextLoanResult.rows[0].next_no}/${year}`;
+    const loanNo = `IL-${nextLoanResult.rows[0].next_no}/${year}`;
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + period);
@@ -1771,7 +1778,12 @@ app.post('/api/v1/loan-statement-direct', async (req, res) => {
     }
     const loan = loanResult.rows[0];
     const normalizedStartDate = convertDateFormat(startDate) || loan.start_date;
-    const normalizedEndDate = convertDateFormat(endDate) || loan.end_date;
+    const requestedEndDate = convertDateFormat(endDate) || loan.end_date;
+    const today = new Date().toISOString().slice(0, 10);
+    // A loan's scheduled maturity date can be in the past while repayments keep
+    // posting after it (overdue/extended loans), so never cut the transaction
+    // window off earlier than today.
+    const normalizedEndDate = requestedEndDate && requestedEndDate > today ? requestedEndDate : today;
     const displayPrincipal = parseFloat(principalAmount ?? loan.amount ?? 0) || 0;
     const displayOutstanding = parseFloat(outstandingBalance ?? loan.total ?? loan.amount ?? 0) || 0;
     const displayPurpose = requestedPurpose || loan.purpose || 'N/A';
