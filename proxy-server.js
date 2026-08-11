@@ -31,10 +31,24 @@ app.use('/api/v1', (req, res, next) => {
 app.disable('etag');
 
 // Logging middleware
+function maskSensitiveBody(body) {
+  if (!body || typeof body !== 'object') {
+    return body;
+  }
+
+  const masked = { ...body };
+  for (const key of Object.keys(masked)) {
+    if (/password|token|secret|otp/i.test(key)) {
+      masked[key] = '[REDACTED]';
+    }
+  }
+  return masked;
+}
+
 app.use((req, res, next) => {
   console.log(`\n?? ${req.method} ${req.url}`);
   if (req.body && Object.keys(req.body).length > 0) {
-    console.log(`   Body:`, req.body);
+    console.log(`   Body:`, maskSensitiveBody(req.body));
   }
   next();
 });
@@ -437,11 +451,13 @@ async function sendLoanApplicationEmails({ memberNo, memberName, loanNo, amount,
 // ============================================
 // Endpoints handled by THIS proxy server locally (PDF generation etc.)
 const LOCAL_ENDPOINTS = [
+  '/test',
   '/auth/registerOtp',
   '/auth/change-password',
   '/auth/register',
   '/auth/authenticate',
   '/loan/apply',
+  '/loan/dry-run',
   '/loan-statement-direct', 
   '/withdrawable-statement-direct',
 ];
@@ -449,10 +465,6 @@ const LOCAL_ENDPOINTS = [
 const LOCAL_ENDPOINT_PREFIXES = [
   '/instant/',
   '/loan-applications/',
-  '/guarantor/',
-  '/dividend/',
-  '/shareCapital/',
-  '/savings/',
 ];
 
 // Endpoints that must go to the Spring Boot backend (port 8080)
@@ -502,7 +514,7 @@ app.use('/api/v1', async (req, res, next) => {
           otp: parseInt(req.body.otp, 10),
           password: req.body.newPassword || req.body.password,
         };
-        console.log(`   ?? Mapped body for Spring Boot:`, springBody);
+        console.log(`   ?? Mapped body for Spring Boot:`, maskSensitiveBody(springBody));
       }
 
       // Snapshot original frontend loan fields BEFORE remapping
@@ -809,6 +821,101 @@ app.post('/api/v1/auth/authenticate', async (req, res) => {
 });
 
 // ============================================
+// LOCAL ENDPOINT: HEALTH CHECK
+// ============================================
+app.get('/api/v1/test', (req, res) => {
+  return res.json({
+    success: true,
+    message: 'Proxy server is running',
+    database: 'connected',
+  });
+});
+
+// ============================================
+// LOCAL ENDPOINT: REPORT HEADER
+// ============================================
+app.get('/api/v1/header/:id', async (req, res) => {
+  console.log(`\n?? [LOCAL] Fetching report header: ${req.params.id}`);
+
+  try {
+    const result = await dbPool.query(
+      `SELECT header_name, company_logo, date, id
+       FROM pb_header
+       WHERE id = $1
+       LIMIT 1`,
+      [req.params.id]
+    );
+
+    const header = result.rows[0] || {};
+    return res.json({
+      id: header.id || Number(req.params.id),
+      organisationName: header.header_name || 'METROPOLITAN HOSPITAL SACCO LTD',
+      headerName: header.header_name || 'METROPOLITAN HOSPITAL SACCO LTD',
+      companyLogo: header.company_logo || null,
+      boxNo: 'P.O. Box 12345',
+      postalCode: '00100',
+      mainTelNo: '020-1234567',
+      email: 'info@metro-sacco.com',
+      date: header.date || null,
+    });
+  } catch (error) {
+    console.error('Failed to fetch report header:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch report header right now.' });
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: WITHDRAWABLE ACCOUNTS
+// ============================================
+app.get('/api/v1/withDrawable/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching withdrawable accounts for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT r.acc_no,
+              r.holders_name,
+              r.date AS reg_date,
+              r.tel1,
+              r.email_add,
+              r.id_no,
+              r.postal_address,
+              COALESCE((
+                SELECT SUM(COALESCE(p.credit, 0) - COALESCE(p.debit, 0))
+                FROM ac_wdeposit_payable p
+                WHERE p.account_no = r.acc_no
+              ), 0) AS out_standing
+       FROM pb_wdeposit_register r
+       WHERE upper(trim(r.share_accno)) = $1
+       ORDER BY r.date DESC NULLS LAST, r.id DESC`,
+      [memberNo]
+    );
+
+    const data = result.rows.map((row) => ({
+      accNo: row.acc_no,
+      holdersName: row.holders_name,
+      name: row.holders_name,
+      regDate: row.reg_date,
+      curDate: new Date().toISOString().slice(0, 10),
+      outStanding: Number(row.out_standing || 0),
+      tel1: row.tel1,
+      emailAdd: row.email_add,
+      idNo: row.id_no,
+      postalAddress: row.postal_address,
+    }));
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to fetch withdrawable accounts:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch withdrawable accounts right now.' });
+  }
+});
+
+// ============================================
 // LOCAL ENDPOINT: MEMBER PROFILE
 // ============================================
 app.get('/api/v1/member/:memberNo', async (req, res) => {
@@ -936,6 +1043,83 @@ app.get('/api/v1/guarantor/:memberNo', async (req, res) => {
 });
 
 // ============================================
+// LOCAL ENDPOINT: DASHBOARD BALANCE TOTALS
+// ============================================
+app.get('/api/v1/dividendPayable/sumTotal/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching dividend payable total for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT COALESCE(SUM(COALESCE(credit, 0) - COALESCE(debit, 0)), 0) AS balance
+       FROM ac_dividends_payable
+       WHERE upper(trim(account_no)) = $1`,
+      [memberNo]
+    );
+
+    const sumTotal = Number(result.rows[0]?.balance || 0);
+    return res.json({ success: true, sumTotal, total: sumTotal, balance: sumTotal });
+  } catch (error) {
+    console.error('Failed to fetch dividend payable total:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch dividend payable total right now.' });
+  }
+});
+
+app.get('/api/v1/shareCapital/sumTotal/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching share capital total for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT COALESCE(SUM(REPLACE(credit, ',', '')::numeric), 0) AS balance
+       FROM integration.shares_summ_view
+       WHERE upper(trim(mem_no)) = $1
+         AND deposit = 'Shares'`,
+      [memberNo]
+    );
+
+    const sumTotal = Number(result.rows[0]?.balance || 0);
+    return res.json({ success: true, sumTotal, total: sumTotal, balance: sumTotal });
+  } catch (error) {
+    console.error('Failed to fetch share capital total:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch share capital total right now.' });
+  }
+});
+
+app.get('/api/v1/savings/sumTotal/:memberNo', async (req, res) => {
+  const memberNo = normalizeAuthMemberNo(req.params.memberNo);
+  console.log(`\n?? [LOCAL] Fetching savings total for: ${memberNo}`);
+
+  if (!memberNo) {
+    return res.status(400).json({ message: 'Member number is required.' });
+  }
+
+  try {
+    const result = await dbPool.query(
+      `SELECT COALESCE(SUM(REPLACE(credit, ',', '')::numeric), 0) AS balance
+       FROM integration.shares_summ_view
+       WHERE upper(trim(mem_no)) = $1
+         AND deposit = 'Deposit'`,
+      [memberNo]
+    );
+
+    const sumTotal = Number(result.rows[0]?.balance || 0);
+    return res.json({ success: true, sumTotal, total: sumTotal, balance: sumTotal });
+  } catch (error) {
+    console.error('Failed to fetch savings total:', error.message);
+    return res.status(500).json({ message: 'Unable to fetch savings total right now.' });
+  }
+});
+
+// ============================================
 // LOCAL ENDPOINT: DIVIDEND STATEMENT
 // ============================================
 app.get('/api/v1/dividend/:memberNo', async (req, res) => {
@@ -948,9 +1132,15 @@ app.get('/api/v1/dividend/:memberNo', async (req, res) => {
 
   try {
     const result = await dbPool.query(
-      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
+      `SELECT date,
+              initcap(item) AS item,
+              reference_no,
+              debit,
+              credit,
+              SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
+                OVER (ORDER BY date ASC NULLS FIRST, id ASC ROWS UNBOUNDED PRECEDING) AS running_balance
        FROM ac_dividends_payable
-       WHERE account_no = $1
+       WHERE upper(trim(account_no)) = $1
        ORDER BY date ASC NULLS LAST, id ASC`,
       [memberNo]
     );
@@ -961,7 +1151,7 @@ app.get('/api/v1/dividend/:memberNo', async (req, res) => {
       refNo: row.reference_no || `DIV${index + 1}`,
       dividend: Number(row.credit || 0),
       paid: Number(row.debit || 0),
-      runningTotal: Number(row.balance || 0),
+      runningTotal: Number(row.running_balance || 0),
     }));
 
     return res.json({ success: true, data });
@@ -984,9 +1174,16 @@ app.get('/api/v1/shareCapital/:memberNo', async (req, res) => {
 
   try {
     const result = await dbPool.query(
-      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
+      `SELECT date,
+              initcap(item) AS item,
+              reference_no,
+              debit,
+              credit,
+              SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
+                OVER (ORDER BY date ASC NULLS FIRST, id ASC ROWS UNBOUNDED PRECEDING) AS running_balance
        FROM ac_shares_ledger
-       WHERE account_no = $1
+       WHERE upper(trim(account_no)) = $1
+         AND transaction_type ILIKE 'sha%'
        ORDER BY date ASC NULLS LAST, id ASC`,
       [memberNo]
     );
@@ -998,7 +1195,7 @@ app.get('/api/v1/shareCapital/:memberNo', async (req, res) => {
       refNo: row.reference_no || `SH${index + 1}`,
       debit: Number(row.debit || 0),
       credit: Number(row.credit || 0),
-      runningAmt: Number(row.balance || 0),
+      runningAmt: Number(row.running_balance || 0),
     }));
 
     return res.json({ success: true, data });
@@ -1020,30 +1217,28 @@ app.get('/api/v1/savings/:memberNo', async (req, res) => {
   }
 
   try {
-    const accountResult = await dbPool.query(
-      `SELECT acc_no FROM pb_wdeposit_register WHERE share_accno = $1`,
-      [memberNo]
-    );
-
-    if (accountResult.rows.length === 0) {
-      return res.json({ success: true, data: [] });
-    }
-    const savingsAccNo = accountResult.rows[0].acc_no;
-
     const result = await dbPool.query(
-      `SELECT date, initcap(item) as item, reference_no, debit, credit, balance
-       FROM ac_wdeposit_payable
-       WHERE account_no = $1
-       ORDER BY date ASC NULLS LAST`,
-      [savingsAccNo]
+      `SELECT p.date,
+              initcap(p.item) AS item,
+              p.reference_no,
+              p.debit,
+              p.credit,
+              r.acc_no,
+              SUM(COALESCE(p.credit, 0) - COALESCE(p.debit, 0))
+                OVER (ORDER BY p.date ASC NULLS FIRST, p.account_no ASC, p.reference_no ASC ROWS UNBOUNDED PRECEDING) AS running_balance
+       FROM pb_wdeposit_register r
+       JOIN ac_wdeposit_payable p ON p.account_no = r.acc_no
+       WHERE upper(trim(r.share_accno)) = $1
+       ORDER BY p.date ASC NULLS LAST, p.account_no ASC, p.reference_no ASC`,
+      [memberNo]
     );
 
     const data = result.rows.map((row, index) => ({
       inputDate: row.date,
-      narration: row.item || 'Savings Transaction',
+      narration: row.acc_no ? `${row.item || 'Savings Transaction'} (${row.acc_no})` : (row.item || 'Savings Transaction'),
       refNo: row.reference_no || `SAV${index + 1}`,
       savings: Number(row.credit || 0) - Number(row.debit || 0),
-      runningAmt: Number(row.balance || 0),
+      runningAmt: Number(row.running_balance || 0),
     }));
 
     return res.json({ success: true, data });
@@ -1350,18 +1545,21 @@ app.post('/api/v1/loan/apply', async (req, res) => {
     memberName,
     loanAmount,
     periodMonths,
-    interestAmount,
-    totalAmount,
-    monthlyDeduction,
     payMode,
     wstation,
   } = req.body || {};
 
+  const INSTANT_LOAN_INTEREST_RATE = 4.5; // % flat, per month
+
   const amount = Number(loanAmount || 0);
   const period = Number(periodMonths || 0);
-  const interest = Number(interestAmount || 0);
-  const total = Number(totalAmount || 0);
-  const repayment = Number(monthlyDeduction || 0);
+  // Interest/total/repayment are always derived server-side from amount and
+  // period — client-submitted figures are never trusted, since a stale or
+  // tampered value would otherwise be written straight to the ledger.
+  const interest = INSTANT_LOAN_INTEREST_RATE;
+  const totalInterest = Math.round(amount * (INSTANT_LOAN_INTEREST_RATE / 100) * period * 100) / 100;
+  const total = Math.round((amount + totalInterest) * 100) / 100;
+  const repayment = period > 0 ? Math.round((total / period) * 100) / 100 : 0;
   const normalizedMemberNo = String(memberNo || '').trim();
   const rawPayMode = String(wstation || payMode || 'N/A').trim() || 'N/A';
   const normalizedPayMode = rawPayMode.toLowerCase() === 'checkoff'
@@ -1534,21 +1732,15 @@ app.post('/api/v1/loan/apply', async (req, res) => {
       });
     }
 
-    const year = new Date().getFullYear();
-    const nextLoanResult = await client.query(
-      `SELECT COALESCE(MAX(split_part(split_part(loan_no, '/', 1), 'IL-', 2)::integer), 0) + 1 AS next_no
-       FROM pb_saccoloan
-       WHERE loan_no ~ $1`,
-      [`^IL-[0-9]+/${year}$`]
-    );
-
-    const loanNo = `IL-${nextLoanResult.rows[0].next_no}/${year}`;
+    // pb_saccoloan has ON INSERT rules (loan_no and loan_noupdate) that assign
+    // the real loan_no from the DB sequence and flip loan_update to true.
+    // The portal inserts NULL for loan_no and reads the DB-assigned value back.
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + period);
     const applicantName = memberName || member.holders_name || normalizedMemberNo;
 
-    await client.query(
+    const insertResult = await client.query(
       `INSERT INTO pb_saccoloan (
          mem_no,
          member_name,
@@ -1577,14 +1769,14 @@ app.post('/api/v1/loan/apply', async (req, res) => {
          security
        )
        VALUES (
-         $1, $2, $3, $4, $5, $6, $7,
-         'METRO SACCO INSTANT LOAN', 'monthly', $8, $9, $10, $11, $12, $13, $12, $14,
-         'centre', $8, true, false, false, false, $15, 'Shares'
-       )`,
+         $1, $2, NULL, $3, $4, $5, $6,
+         'METRO SACCO INSTANT LOAN', 'monthly', $7, $8, $9, $10, $11, $12, $11, $13,
+         'centre', $7, true, false, false, false, $14, 'Shares'
+       )
+       RETURNING id`,
       [
         normalizedMemberNo,
         applicantName,
-        loanNo,
         member.postal_address || null,
         member.postal_code || null,
         member.email_add || null,
@@ -1599,6 +1791,13 @@ app.post('/api/v1/loan/apply', async (req, res) => {
         normalizedPayMode,
       ]
     );
+
+    const newLoanId = insertResult.rows[0].id;
+    const finalLoanResult = await client.query(
+      `SELECT loan_no FROM pb_saccoloan WHERE id = $1`,
+      [newLoanId]
+    );
+    const loanNo = finalLoanResult.rows[0].loan_no;
 
     await client.query('COMMIT');
 
@@ -1630,6 +1829,226 @@ app.post('/api/v1/loan/apply', async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: INSTANT LOAN DRY RUN
+// ============================================
+app.post('/api/v1/loan/dry-run', async (req, res) => {
+  const {
+    memberNo,
+    loanAmount,
+    periodMonths,
+    payMode,
+    wstation,
+  } = req.body || {};
+
+  const INSTANT_LOAN_INTEREST_RATE = 4.5;
+  const amount = Number(loanAmount || 0);
+  const period = Number(periodMonths || 0);
+  const interest = INSTANT_LOAN_INTEREST_RATE;
+  const totalInterest = Math.round(amount * (INSTANT_LOAN_INTEREST_RATE / 100) * period * 100) / 100;
+  const total = Math.round((amount + totalInterest) * 100) / 100;
+  const repayment = period > 0 ? Math.round((total / period) * 100) / 100 : 0;
+  const normalizedMemberNo = String(memberNo || '').trim();
+  const rawPayMode = String(wstation || payMode || 'N/A').trim() || 'N/A';
+  const normalizedPayMode = rawPayMode.toLowerCase() === 'checkoff'
+    ? 'Check off'
+    : rawPayMode === 'N/A'
+      ? 'N/A'
+      : rawPayMode.charAt(0).toUpperCase() + rawPayMode.slice(1).toLowerCase();
+
+  console.log(`\n?? [LOCAL] Dry-running instant loan for: ${normalizedMemberNo}`);
+
+  if (!normalizedMemberNo) {
+    return res.status(400).json({ success: false, message: 'Member number is required.' });
+  }
+
+  if (!amount || amount <= 0 || !period || period <= 0) {
+    return res.status(400).json({ success: false, message: 'Valid loan amount and period are required.' });
+  }
+
+  const formatKES = (value) => Number(value || 0).toLocaleString('en-KE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const instantLoanCap = 50000;
+  const minimumShareCapital = 10000;
+
+  if (amount < 1000) {
+    return res.status(400).json({ success: false, message: 'The minimum instant loan amount is KES 1,000.' });
+  }
+
+  if (amount > instantLoanCap) {
+    return res.status(400).json({
+      success: false,
+      message: `Instant loans are currently capped at KES ${formatKES(instantLoanCap)}. For higher loan amounts, please contact the Sacco office for guidance on other loan products.`,
+      code: 'INSTANT_LOAN_CAP_EXCEEDED',
+    });
+  }
+
+  if (period > 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Instant loans can only be repaid over a maximum of 6 months.',
+      code: 'INSTANT_LOAN_PERIOD_EXCEEDED',
+    });
+  }
+
+  try {
+    const memberResult = await dbPool.query(
+      `SELECT acc_no,
+              holders_name,
+              date AS member_since,
+              COALESCE(loan_blacklisted, false) AS loan_blacklisted
+       FROM pb_share_register
+       WHERE acc_no = $1`,
+      [normalizedMemberNo]
+    );
+
+    if (memberResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Member record not found.' });
+    }
+
+    const member = memberResult.rows[0];
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    if (member.loan_blacklisted) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is currently not eligible for instant loans. Please contact the Sacco office for assistance.',
+        code: 'LOAN_BLACKLISTED',
+      });
+    }
+
+    if (!member.member_since || new Date(member.member_since) > sixMonthsAgo) {
+      return res.status(403).json({
+        success: false,
+        message: 'Instant loans are available to members who have been active for at least 6 months. Please contact the Sacco office if you need help.',
+        code: 'MEMBERSHIP_TOO_NEW',
+      });
+    }
+
+    const eligibilityResult = await dbPool.query(
+      `SELECT
+         COALESCE((SELECT SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
+                   FROM ac_shares_ledger
+                   WHERE account_no = $1), 0) AS shares_ledger_balance,
+         COALESCE((SELECT SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
+                   FROM ac_shares_capital
+                   WHERE account_no = $1), 0) AS share_capital,
+         COALESCE((SELECT MAX(outstanding)
+                   FROM (
+                     SELECT SUM(COALESCE(d.balance, 0) - COALESCE(d.credit_bal, 0)) AS outstanding
+                     FROM ac_debtors d
+                     JOIN pb_saccoloan l ON l.mem_no = d.account_no AND l.loan_no = d.invoice_no
+                     WHERE d.account_no = $1
+                       AND upper(coalesce(l.lpurpose, d.item, '')) LIKE '%INSTANT LOAN%'
+                     GROUP BY d.invoice_no
+                     HAVING SUM(COALESCE(d.balance, 0) - COALESCE(d.credit_bal, 0)) > 0
+                   ) unpaid_instant_loans), 0) AS active_instant_balance`,
+      [normalizedMemberNo]
+    );
+
+    const eligibility = eligibilityResult.rows[0] || {};
+    const sharesLedgerBalance = Number(eligibility.shares_ledger_balance || 0);
+    const shareCapital = Number(eligibility.share_capital || 0);
+    const activeInstantBalance = Number(eligibility.active_instant_balance || 0);
+    const shareCapitalBasedLimit = sharesLedgerBalance * 3;
+
+    if (shareCapital < minimumShareCapital) {
+      return res.status(403).json({
+        success: false,
+        message: `Instant loan applications require minimum share capital of KES ${formatKES(minimumShareCapital)}. Your current share capital is KES ${formatKES(shareCapital)}.`,
+        code: 'INSUFFICIENT_SHARE_CAPITAL',
+        eligibility: { shareCapital, requiredShareCapital: minimumShareCapital },
+      });
+    }
+
+    if (activeInstantBalance > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `You already have an unpaid instant loan balance of KES ${formatKES(activeInstantBalance)}. Please clear it before applying for another instant loan.`,
+        code: 'EXISTING_INSTANT_LOAN_BALANCE',
+        eligibility: { activeInstantBalance },
+      });
+    }
+
+    if (sharesLedgerBalance < amount) {
+      return res.status(403).json({
+        success: false,
+        message: `Your share capital balance is KES ${formatKES(sharesLedgerBalance)}. To apply for this instant loan, your share capital should be at least KES ${formatKES(amount)}.`,
+        code: 'INSUFFICIENT_SHARE_CAPITAL_BALANCE',
+        eligibility: { sharesLedgerBalance, requestedAmount: amount },
+      });
+    }
+
+    if (amount > shareCapitalBasedLimit) {
+      return res.status(403).json({
+        success: false,
+        message: `Based on your share capital of KES ${formatKES(sharesLedgerBalance)}, your maximum eligible loan is KES ${formatKES(shareCapitalBasedLimit)}. For higher amounts, please contact the Sacco office.`,
+        code: 'SHARE_CAPITAL_MULTIPLE_EXCEEDED',
+        eligibility: { sharesLedgerBalance, shareCapitalBasedLimit, requestedAmount: amount },
+      });
+    }
+
+    const existingPendingResult = await dbPool.query(
+      `SELECT loan_no
+       FROM pb_saccoloan
+       WHERE mem_no = $1
+         AND COALESCE(processed, false) = false
+         AND upper(coalesce(lpurpose, '')) = 'METRO SACCO INSTANT LOAN'
+       ORDER BY id DESC
+       LIMIT 1`,
+      [normalizedMemberNo]
+    );
+
+    if (existingPendingResult.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `You already have a pending instant loan application (${existingPendingResult.rows[0].loan_no}). Please wait for approval before applying again.`,
+        code: 'EXISTING_PENDING_INSTANT_LOAN',
+        loanNo: existingPendingResult.rows[0].loan_no,
+      });
+    }
+
+    return res.json({
+      success: true,
+      dryRun: true,
+      message: 'Instant loan dry run passed. No loan was created.',
+      memberNo: normalizedMemberNo,
+      memberName: member.holders_name,
+      payMode: normalizedPayMode,
+      calculation: {
+        amount,
+        periodMonths: period,
+        monthlyInterestRate: interest,
+        totalInterest,
+        totalAmount: total,
+        monthlyRepayment: repayment,
+      },
+      dbPreview: {
+        interest,
+        total,
+        repayment,
+      },
+      eligibility: {
+        shareCapital,
+        sharesLedgerBalance,
+        shareCapitalBasedLimit,
+        activeInstantBalance,
+      },
+    });
+  } catch (error) {
+    console.error('Instant loan dry run failed:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to dry-run instant loan right now.',
+      error: error.message,
+    });
   }
 });
 
@@ -1700,6 +2119,10 @@ app.get('/api/v1/loan-applications/:memberNo', async (req, res) => {
               total,
               repayment,
               interest,
+              CASE
+                WHEN interest > 100 THEN 4.5
+                ELSE COALESCE(interest, 4.5)
+              END AS "interestRate",
               COALESCE(NULLIF(wstation, ''), 'N/A') AS "payMode",
               COALESCE(total, amount, 0) AS "outStanding",
               true AS "isPending",

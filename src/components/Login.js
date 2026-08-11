@@ -127,7 +127,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
             if (onLogin) {
               onLogin(memberData);
             } else {
-              navigate('/dashboard');
+              navigate('/');
             }
           } else {
             // If member details fetch fails, still allow login with basic info
@@ -140,7 +140,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
             if (onLogin) {
               onLogin(authData);
             } else {
-              navigate('/dashboard');
+              navigate('/');
             }
           }
         } catch (memberError) {
@@ -154,7 +154,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
           if (onLogin) {
             onLogin(authData);
           } else {
-            navigate('/dashboard');
+            navigate('/');
           }
         }
       } else {

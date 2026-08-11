@@ -358,6 +358,7 @@ function App() {
     <MainLayout>
       <Routes>
         <Route path="/" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
+        <Route path="/dashboard" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
         <Route path="/profile" element={<MemberProfile />} />
         <Route path="/apply-loan" element={<ApplyLoan />} />
         <Route path="/dividends" element={<DividendList />} />

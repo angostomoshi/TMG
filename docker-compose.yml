@@ -24,4 +24,5 @@ services:
       - DB_NAME=metrosacco
       - DB_USER=centre
       - DB_PASSWORD=centre123
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
     restart: unless-stopped

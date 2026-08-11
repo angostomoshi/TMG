@@ -18,6 +18,10 @@ function ShareCapital() {
     console.log('Processing share capital data:', data);
     
     let transactions = [];
+    const parseAmount = (value) => {
+      const parsed = Number(String(value ?? 0).replace(/,/g, ''));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
     
     if (Array.isArray(data)) {
       transactions = data;
@@ -42,8 +46,8 @@ function ShareCapital() {
 
     const formattedTransactions = transactions.map((item, index) => {
       // Calculate net amount (credit - debit)
-      const creditAmount = parseFloat(item?.credit || 0);
-      const debitAmount = parseFloat(item?.debit || 0);
+      const creditAmount = parseAmount(item?.credit);
+      const debitAmount = parseAmount(item?.debit);
       const netAmount = creditAmount - debitAmount;
       
       // Determine narration based on item type
@@ -57,16 +61,25 @@ function ShareCapital() {
         savings: netAmount, // Use net amount for savings column
         credit: creditAmount,
         debit: debitAmount,
-        runningAmt: parseFloat(item?.runningAmt || item?.runningTotal || item?.balance || item?.runningBalance || 0)
+        runningAmt: parseAmount(item?.runningAmt ?? item?.runningTotal ?? item?.balance ?? item?.runningBalance)
       };
     }).sort((a, b) => parseDateForSort(a.inputDate) - parseDateForSort(b.inputDate));
+
+    let runningAmount = 0;
+    const transactionsWithRunningAmount = formattedTransactions.map((transaction) => {
+      runningAmount += transaction.savings || 0;
+      return {
+        ...transaction,
+        runningAmt: runningAmount
+      };
+    });
     
-    setShareTransactions(formattedTransactions);
+    setShareTransactions(transactionsWithRunningAmount);
     
     // Calculate totals
-    const totalSharesPurchased = formattedTransactions.reduce((sum, t) => sum + (t.savings > 0 ? t.savings : 0), 0);
-    const totalShares = formattedTransactions.length > 0 
-      ? formattedTransactions.reduce((sum, t) => sum + t.savings, 0)
+    const totalSharesPurchased = transactionsWithRunningAmount.reduce((sum, t) => sum + (t.savings > 0 ? t.savings : 0), 0);
+    const totalShares = transactionsWithRunningAmount.length > 0 
+      ? transactionsWithRunningAmount[transactionsWithRunningAmount.length - 1].runningAmt
       : 0;
     
     setTotals({
@@ -346,6 +359,7 @@ function ShareCapital() {
                 <th>Credit (KES)</th>
                 <th>Debit (KES)</th>
                 <th>Net Amount (KES)</th>
+                <th>Running Amt (KES)</th>
               </tr>
             </thead>
             <tbody>
@@ -358,11 +372,12 @@ function ShareCapital() {
                     <td className="amount"><strong>{safeFormatNumber(transaction.credit)}</strong></td>
                     <td className="amount"><strong>{safeFormatNumber(transaction.debit)}</strong></td>
                     <td className="amount"><strong>{safeFormatNumber(transaction.savings)}</strong></td>
+                    <td className="amount"><strong>{safeFormatNumber(transaction.runningAmt)}</strong></td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', fontWeight: 'bold' }}>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '2rem', fontWeight: 'bold' }}>
                     No share capital transactions found
                   </td>
                 </tr>
@@ -375,6 +390,7 @@ function ShareCapital() {
                   <td className="amount"><strong>{safeFormatNumber(shareTransactions.reduce((sum, t) => sum + t.credit, 0))}</strong></td>
                   <td className="amount"><strong>{safeFormatNumber(shareTransactions.reduce((sum, t) => sum + t.debit, 0))}</strong></td>
                   <td className="amount"><strong>{safeFormatNumber(totals.totalShares)}</strong></td>
+                  <td className="amount"><strong>{safeFormatNumber(shareTransactions[shareTransactions.length - 1]?.runningAmt || totals.totalShares)}</strong></td>
                 </tr>
               </tfoot>
             )}
