@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCoins, FaFileInvoiceDollar, FaPiggyBank, FaUniversity } from 'react-icons/fa';
+import { FaCoins, FaFileInvoiceDollar, FaHandHoldingUsd, FaMobileAlt, FaPiggyBank, FaUniversity, FaUserFriends } from 'react-icons/fa';
 import Alert from './Alert';
 
 const Dashboard = ({ userData }) => {
@@ -136,13 +136,13 @@ const Dashboard = ({ userData }) => {
   ], [metrics]);
 
   const quickActions = [
-    { label: 'Deposit via M-Pesa', description: 'Top up your savings straight from your phone.', path: '/deposit' },
+    { label: 'Deposit via M-Pesa', description: 'Top up your savings straight from your phone.', path: '/deposit', icon: FaMobileAlt, highlight: true },
     ...(metrics.loanBalance > 0 ? [
-      { label: 'Repay loan via M-Pesa', description: 'Pay down your loan balance instantly.', path: '/loan-statement' }
+      { label: 'Repay loan via M-Pesa', description: 'Pay down your loan balance instantly.', path: '/loan-statement', icon: FaMobileAlt, highlight: true }
     ] : []),
-    { label: 'Apply for instant loan', description: 'Preview repayment, interest, and monthly deduction.', path: '/apply-loan' },
-    { label: 'Download savings statement', description: 'Export a clean PDF for your records.', path: '/share-statement' },
-    { label: 'Review guarantor position', description: 'See loans where you appear as guarantor.', path: '/guarantors' }
+    { label: 'Apply for instant loan', description: 'Preview repayment, interest, and monthly deduction.', path: '/apply-loan', icon: FaHandHoldingUsd },
+    { label: 'Download savings statement', description: 'Export a clean PDF for your records.', path: '/share-statement', icon: FaFileInvoiceDollar },
+    { label: 'Review guarantor position', description: 'See loans where you appear as guarantor.', path: '/guarantors', icon: FaUserFriends }
   ];
 
   const timelineItems = [
@@ -200,15 +200,28 @@ const Dashboard = ({ userData }) => {
             </div>
           </div>
           <div className="action-list">
-            {quickActions.map((action) => (
-              <button type="button" key={action.label} onClick={() => navigate(action.path)}>
-                <div>
-                  <strong>{action.label}</strong>
-                  <span>{action.description}</span>
-                </div>
-                <span className="action-arrow">→</span>
-              </button>
-            ))}
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  type="button"
+                  key={action.label}
+                  className={action.highlight ? 'action-list-highlight' : ''}
+                  onClick={() => navigate(action.path)}
+                >
+                  {Icon && (
+                    <span className={`action-icon ${action.highlight ? 'action-icon-mpesa' : ''}`}>
+                      <Icon />
+                    </span>
+                  )}
+                  <div>
+                    <strong>{action.label}</strong>
+                    <span>{action.description}</span>
+                  </div>
+                  <span className="action-arrow">→</span>
+                </button>
+              );
+            })}
           </div>
         </section>
 

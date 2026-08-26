@@ -365,10 +365,13 @@ function WithdrawableStmt() {
                       View Statement
                     </button>
                     <button
-                      className="view-stmt-btn"
+                      className="mpesa-pay-btn"
                       onClick={() => setMpesaAccount(item)}
-                      style={{ backgroundColor: '#27ae60' }}
                     >
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M12 2 3 7v6c0 5 3.8 8.7 9 9 5.2-.3 9-4 9-9V7l-9-5Z" fill="currentColor" opacity="0.22" />
+                        <path d="M8.5 12.2 11 14.7l4.7-5.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                       Deposit via M-Pesa
                     </button>
                   </td>
@@ -501,6 +504,35 @@ function WithdrawableStmt() {
         .view-stmt-btn:hover {
           opacity: 0.9;
         }
+
+        .mpesa-pay-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          background: linear-gradient(135deg, #27ae60, #1e8e4a);
+          color: #fff;
+          border: none;
+          padding: 0.32rem 0.85rem;
+          border-radius: 100px;
+          cursor: pointer;
+          font-size: 0.7rem;
+          font-weight: 700;
+          white-space: nowrap;
+          box-shadow: 0 8px 16px rgba(39, 174, 96, 0.24);
+          transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        .mpesa-pay-btn svg {
+          width: 13px;
+          height: 13px;
+          flex-shrink: 0;
+        }
+
+        .mpesa-pay-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 20px rgba(39, 174, 96, 0.32);
+        }
+
         .total-row {
           background: #f0f0f0;
           font-weight: bold;
