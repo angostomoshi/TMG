@@ -22,6 +22,7 @@ import GuarantorList from './components/GuarantorList';
 import ShareCapital from './components/ShareCapital';
 import ShareStatement from './components/ShareStatement';
 import WithdrawableStmt from './components/WithdrawableStmt';
+import DepositMpesa from './components/DepositMpesa';
 import Login from './components/Login';
 import CreateAccount from './components/CreateAccount';
 import ChangePassword from './components/ChangePassword';
@@ -76,6 +77,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/share-capital', label: 'Share Capital', icon: FaUniversity },
     { path: '/share-statement', label: 'Savings Statement', icon: FaChartLine },
     { path: '/withdrawable', label: 'Withdrawable Statement', icon: FaWallet },
+    { path: '/deposit', label: 'Deposit via M-Pesa', icon: FaWallet },
   ];
 
   const handleNavigation = (path) => {
@@ -186,7 +188,8 @@ const TopBar = ({ onMenuToggle }) => {
     '/guarantors': 'Guarantors',
     '/share-capital': 'Share Capital',
     '/share-statement': 'Savings Statement',
-    '/withdrawable': 'Withdrawable Statement'
+    '/withdrawable': 'Withdrawable Statement',
+    '/deposit': 'Deposit via M-Pesa'
   };
 
   const getFirstName = () => {
@@ -419,6 +422,7 @@ function App() {
           <Route path="/share-capital" element={<ShareCapital />} />
           <Route path="/share-statement" element={<ShareStatement />} />
           <Route path="/withdrawable" element={<WithdrawableStmt />} />
+          <Route path="/deposit" element={<DepositMpesa />} />
           <Route path="/create-account" element={<CreateAccount />} />
           <Route path="/change-password" element={<ChangePassword />} />
         </Routes>

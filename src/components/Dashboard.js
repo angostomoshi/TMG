@@ -136,6 +136,10 @@ const Dashboard = ({ userData }) => {
   ], [metrics]);
 
   const quickActions = [
+    { label: 'Deposit via M-Pesa', description: 'Top up your savings straight from your phone.', path: '/deposit' },
+    ...(metrics.loanBalance > 0 ? [
+      { label: 'Repay loan via M-Pesa', description: 'Pay down your loan balance instantly.', path: '/loan-statement' }
+    ] : []),
     { label: 'Apply for instant loan', description: 'Preview repayment, interest, and monthly deduction.', path: '/apply-loan' },
     { label: 'Download savings statement', description: 'Export a clean PDF for your records.', path: '/share-statement' },
     { label: 'Review guarantor position', description: 'See loans where you appear as guarantor.', path: '/guarantors' }

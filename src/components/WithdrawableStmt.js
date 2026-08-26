@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import MpesaPaymentModal from './MpesaPaymentModal';
 
 function WithdrawableStmt() {
   const reportRef = useRef();
@@ -14,6 +15,7 @@ function WithdrawableStmt() {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [statementLoading, setStatementLoading] = useState(false);
+  const [mpesaAccount, setMpesaAccount] = useState(null);
   
   const brandColor = '#00a3b5';
 
@@ -354,13 +356,20 @@ function WithdrawableStmt() {
                   <td>{item.regDate || 'N/A'}</td>
                   <td>{item.curDate || 'N/A'}</td>
                   <td className="amount"><strong>{formatRawValue(item.outStanding)}</strong></td>
-                  <td className="action-cell">
-                    <button 
+                  <td className="action-cell" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button
                       className="view-stmt-btn"
                       onClick={() => handleViewStatement(item)}
                       style={{ backgroundColor: brandColor }}
                     >
                       View Statement
+                    </button>
+                    <button
+                      className="view-stmt-btn"
+                      onClick={() => setMpesaAccount(item)}
+                      style={{ backgroundColor: '#27ae60' }}
+                    >
+                      Deposit via M-Pesa
                     </button>
                   </td>
                 </tr>
@@ -436,6 +445,16 @@ function WithdrawableStmt() {
           </div>
         </div>
       )}
+
+      <MpesaPaymentModal
+        isOpen={!!mpesaAccount}
+        onClose={() => setMpesaAccount(null)}
+        memberNo={localStorage.getItem('memberNumber')}
+        purpose="savings"
+        accountReference={mpesaAccount?.accNo}
+        defaultPhone={memberData?.tel1 || memberData?.phone}
+        onSuccess={() => window.location.reload()}
+      />
 
       <style>{`
         .report-container {

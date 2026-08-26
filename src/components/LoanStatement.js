@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import { formatPayMode } from '../utils/formatters';
+import MpesaPaymentModal from './MpesaPaymentModal';
 
 function LoanStatement() {
   const [memberData, setMemberData] = useState(null);
@@ -15,6 +16,7 @@ function LoanStatement() {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
+  const [mpesaLoan, setMpesaLoan] = useState(null);
   
   const brandColor = '#00a3b5';
 
@@ -675,14 +677,23 @@ function LoanStatement() {
                     <td data-label="Status">
                       {loan.status}
                     </td>
-                    <td data-label="Action" className="action-cell">
-                      <button 
+                    <td data-label="Action" className="action-cell" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <button
                         className="view-stmt-btn"
                         onClick={() => handleViewStatement(loan)}
                         style={{ backgroundColor: brandColor }}
                       >
                         {loan.isPending ? 'View Summary' : 'View Statement'}
                       </button>
+                      {!loan.isPending && Number(loan.balance) > 0 && (
+                        <button
+                          className="view-stmt-btn"
+                          onClick={() => setMpesaLoan(loan)}
+                          style={{ backgroundColor: '#27ae60' }}
+                        >
+                          Pay via M-Pesa
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )) : (
@@ -761,6 +772,17 @@ function LoanStatement() {
           </div>
         </div>
       )}
+
+      <MpesaPaymentModal
+        isOpen={!!mpesaLoan}
+        onClose={() => setMpesaLoan(null)}
+        memberNo={localStorage.getItem('memberNumber')}
+        purpose="loan_repayment"
+        accountReference={mpesaLoan?.loanNo}
+        defaultAmount={mpesaLoan?.balance}
+        defaultPhone={memberData?.tel1}
+        onSuccess={() => window.location.reload()}
+      />
 
       <style>{`
         .report-container {
