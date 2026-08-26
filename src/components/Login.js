@@ -48,6 +48,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
         // Store authentication data
         localStorage.setItem('memberNumber', memberNumber.trim());
         localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('loginTimestamp', String(Date.now()));
         
         if (authData.token) {
           localStorage.setItem('authToken', authData.token);

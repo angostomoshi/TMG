@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import {
   FaChartPie,
@@ -25,8 +25,14 @@ import WithdrawableStmt from './components/WithdrawableStmt';
 import Login from './components/Login';
 import CreateAccount from './components/CreateAccount';
 import ChangePassword from './components/ChangePassword';
+import IdleWarningModal from './components/IdleWarningModal';
+import useIdleLogout from './hooks/useIdleLogout';
 import './App.css';
 import logo from './log.png';
+
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const IDLE_WARNING_MS = 60 * 1000;
+const ABSOLUTE_SESSION_MS = 60 * 60 * 1000;
 
 const clearSession = () => {
   [
@@ -39,8 +45,21 @@ const clearSession = () => {
     'accountNo',
     'memberNumber',
     'authToken',
-    'holdersName'
+    'holdersName',
+    'loginTimestamp',
+    'savingsTransactions',
+    'shareTransactions',
+    'dividendTransactions',
+    'guarantorTransactions',
+    'withdrawableData',
+    'dashboardMetrics'
   ].forEach((key) => localStorage.removeItem(key));
+};
+
+const isSessionExpired = () => {
+  const loginTimestamp = Number(localStorage.getItem('loginTimestamp'));
+  if (!loginTimestamp) return false;
+  return Date.now() - loginTimestamp > ABSOLUTE_SESSION_MS;
 };
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -200,7 +219,7 @@ const TopBar = ({ onMenuToggle }) => {
             <span>Home</span>
             <span>/</span>
             <span>{pageTitles[window.location.pathname] || 'Dashboard'}</span>
-            <span className="greeting-divider">•</span>
+            <span className="greeting-divider">ï¿½</span>
             <strong>{getGreeting()}, {getFirstName()}</strong>
           </div>
         </div>
@@ -280,7 +299,39 @@ const MainLayout = ({ children }) => {
 function App() {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('isAuthenticated') === 'true';
+    const wasAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+    if (wasAuthenticated && isSessionExpired()) {
+      clearSession();
+      return false;
+    }
+    return wasAuthenticated;
+  });
+
+  const handleIdleLogout = useCallback(() => {
+    clearSession();
+    setIsAuthenticated(false);
+    navigate('/login');
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const checkExpiry = () => {
+      if (isSessionExpired()) {
+        handleIdleLogout();
+      }
+    };
+
+    checkExpiry();
+    const interval = setInterval(checkExpiry, 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, handleIdleLogout]);
+
+  const { warningSecondsLeft, stayLoggedIn } = useIdleLogout({
+    idleMs: IDLE_TIMEOUT_MS,
+    warningMs: IDLE_WARNING_MS,
+    onIdle: handleIdleLogout,
+    enabled: isAuthenticated,
   });
 
   const handleLogin = async () => {
@@ -355,22 +406,31 @@ function App() {
   }
 
   return (
-    <MainLayout>
-      <Routes>
-        <Route path="/" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
-        <Route path="/dashboard" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
-        <Route path="/profile" element={<MemberProfile />} />
-        <Route path="/apply-loan" element={<ApplyLoan />} />
-        <Route path="/dividends" element={<DividendList />} />
-        <Route path="/loan-statement" element={<LoanStatement />} />
-        <Route path="/guarantors" element={<GuarantorList />} />
-        <Route path="/share-capital" element={<ShareCapital />} />
-        <Route path="/share-statement" element={<ShareStatement />} />
-        <Route path="/withdrawable" element={<WithdrawableStmt />} />
-        <Route path="/create-account" element={<CreateAccount />} />
-        <Route path="/change-password" element={<ChangePassword />} />
-      </Routes>
-    </MainLayout>
+    <>
+      <MainLayout>
+        <Routes>
+          <Route path="/" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
+          <Route path="/dashboard" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
+          <Route path="/profile" element={<MemberProfile />} />
+          <Route path="/apply-loan" element={<ApplyLoan />} />
+          <Route path="/dividends" element={<DividendList />} />
+          <Route path="/loan-statement" element={<LoanStatement />} />
+          <Route path="/guarantors" element={<GuarantorList />} />
+          <Route path="/share-capital" element={<ShareCapital />} />
+          <Route path="/share-statement" element={<ShareStatement />} />
+          <Route path="/withdrawable" element={<WithdrawableStmt />} />
+          <Route path="/create-account" element={<CreateAccount />} />
+          <Route path="/change-password" element={<ChangePassword />} />
+        </Routes>
+      </MainLayout>
+      {warningSecondsLeft !== null && (
+        <IdleWarningModal
+          secondsLeft={warningSecondsLeft}
+          onStay={stayLoggedIn}
+          onLogoutNow={handleIdleLogout}
+        />
+      )}
+    </>
   );
 }
 
