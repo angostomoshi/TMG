@@ -95,6 +95,22 @@ function isProxyIssuedAuthorization(authHeader) {
   }
 }
 
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const match = authHeader && String(authHeader).match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ message: 'Authentication required.' });
+  }
+
+  try {
+    const payload = jwt.verify(match[1], PROXY_JWT_SECRET);
+    req.auth = { memberNo: payload.memberNo, role: payload.role };
+    return next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid or expired session. Please log in again.' });
+  }
+}
+
 function addForwardedAuthorization(forwardHeaders, authHeader) {
   if (!authHeader) return;
 
@@ -144,6 +160,102 @@ function normalizePhoneNumber(phoneNumber) {
   if (digits.startsWith('0') && digits.length === 10) return `254${digits.slice(1)}`;
   if (digits.length === 9) return `254${digits}`;
   return digits;
+}
+
+// ============================================
+// M-PESA (DARAJA) HELPERS
+// ============================================
+const MPESA_BASE_URL = process.env.MPESA_ENV === 'production'
+  ? 'https://api.safaricom.co.ke'
+  : 'https://sandbox.safaricom.co.ke';
+
+let mpesaTokenCache = { token: null, expiresAt: 0 };
+
+async function getMpesaAccessToken() {
+  if (mpesaTokenCache.token && Date.now() < mpesaTokenCache.expiresAt - 60000) {
+    return mpesaTokenCache.token;
+  }
+
+  const consumerKey = process.env.MPESA_CONSUMER_KEY;
+  const consumerSecret = process.env.MPESA_CONSUMER_SECRET;
+  if (!consumerKey || !consumerSecret) {
+    throw new Error('MPESA_CONSUMER_KEY / MPESA_CONSUMER_SECRET are not configured.');
+  }
+
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const response = await axios.get(`${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
+    headers: { Authorization: `Basic ${auth}` },
+    timeout: 15000,
+  });
+
+  const { access_token: token, expires_in: expiresIn } = response.data;
+  mpesaTokenCache = {
+    token,
+    expiresAt: Date.now() + (Number(expiresIn || 3600) * 1000),
+  };
+
+  return token;
+}
+
+function buildMpesaTimestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return (
+    now.getFullYear().toString() +
+    pad(now.getMonth() + 1) +
+    pad(now.getDate()) +
+    pad(now.getHours()) +
+    pad(now.getMinutes()) +
+    pad(now.getSeconds())
+  );
+}
+
+function buildMpesaPassword(timestamp) {
+  const shortcode = process.env.MPESA_SHORTCODE;
+  const passkey = process.env.MPESA_PASSKEY;
+  if (!shortcode || !passkey) {
+    throw new Error('MPESA_SHORTCODE / MPESA_PASSKEY are not configured.');
+  }
+  return Buffer.from(`${shortcode}${passkey}${timestamp}`).toString('base64');
+}
+
+async function initiateStkPush({ phoneNo, amount, accountReference, transactionDesc }) {
+  const shortcode = process.env.MPESA_SHORTCODE;
+  const callbackUrl = process.env.MPESA_CALLBACK_URL;
+  if (!callbackUrl) {
+    throw new Error('MPESA_CALLBACK_URL is not configured.');
+  }
+
+  const accessToken = await getMpesaAccessToken();
+  const timestamp = buildMpesaTimestamp();
+  const password = buildMpesaPassword(timestamp);
+  const callbackSecret = process.env.MPESA_CALLBACK_SECRET;
+  const callbackUrlWithSecret = callbackSecret
+    ? `${callbackUrl}${callbackUrl.includes('?') ? '&' : '?'}key=${encodeURIComponent(callbackSecret)}`
+    : callbackUrl;
+
+  const response = await axios.post(
+    `${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`,
+    {
+      BusinessShortCode: shortcode,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: 'CustomerPayBillOnline',
+      Amount: Math.round(Number(amount)),
+      PartyA: phoneNo,
+      PartyB: shortcode,
+      PhoneNumber: phoneNo,
+      CallBackURL: callbackUrlWithSecret,
+      AccountReference: String(accountReference).slice(0, 12),
+      TransactionDesc: String(transactionDesc || 'Metro Sacco Payment').slice(0, 13),
+    },
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 20000,
+    }
+  );
+
+  return response.data;
 }
 
 function normalizeProtocol(protocols) {
@@ -447,6 +559,138 @@ async function sendLoanApplicationEmails({ memberNo, memberName, loanNo, amount,
 }
 
 // ============================================
+// M-PESA PAYMENT RECEIPT (PDF + EMAIL)
+// ============================================
+async function generatePaymentReceiptPdfBuffer({
+  organisationName, memberName, memberNo, purpose, accountReference,
+  amount, mpesaReceiptNo, transactionDate, newBalance,
+}) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const formatKES = (val) => Number(val || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const purposeLabel = purpose === 'loan_repayment' ? 'Loan Repayment' : 'Savings Deposit';
+
+    doc.font('Helvetica-Bold').fontSize(14).text(organisationName, { align: 'center' });
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#00a3b5').text('M-PESA PAYMENT RECEIPT', { align: 'center' });
+    doc.moveDown(1);
+
+    const rows = [
+      ['Member Name', memberName || 'N/A'],
+      ['Member No', memberNo],
+      ['Payment For', purposeLabel],
+      ['Account Reference', accountReference],
+      ['M-Pesa Receipt No', mpesaReceiptNo || 'N/A'],
+      ['Date/Time', transactionDate ? new Date(transactionDate).toLocaleString('en-GB') : new Date().toLocaleString('en-GB')],
+      ['Amount Paid (KES)', formatKES(amount)],
+    ];
+    if (newBalance !== null && newBalance !== undefined) {
+      rows.push(['New Balance (KES)', formatKES(newBalance)]);
+    }
+
+    doc.font('Helvetica').fontSize(10).fillColor('#111827');
+    rows.forEach(([label, value]) => {
+      doc.font('Helvetica-Bold').text(`${label}:`, { continued: true, width: 200 });
+      doc.font('Helvetica').text(`  ${value}`);
+      doc.moveDown(0.4);
+    });
+
+    doc.moveDown(1);
+    doc.fontSize(8).fillColor('#6b7280').text('This is a computer-generated receipt and does not require a signature.', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+async function sendPaymentReceiptEmail({ recipientEmail, recipientName, memberNo, purpose, accountReference, amount, mpesaReceiptNo, pdfBuffer }) {
+  const formatKES = (val) => Number(val || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const purposeLabel = purpose === 'loan_repayment' ? 'loan repayment' : 'savings deposit';
+
+  return sendWithSmtpFallback({
+    to: recipientEmail,
+    subject: `Metro Sacco – M-Pesa Payment Receipt (${mpesaReceiptNo || accountReference})`,
+    text: `Dear ${recipientName || 'Member'},\n\nWe have received your M-Pesa ${purposeLabel} of KES ${formatKES(amount)} (Receipt ${mpesaReceiptNo}). A copy of your receipt is attached.\n\nMetro Sacco`,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+        <p>Dear ${recipientName || 'Member'},</p>
+        <p>We have received your M-Pesa ${purposeLabel} of <strong>KES ${formatKES(amount)}</strong> (Receipt <strong>${mpesaReceiptNo}</strong>).</p>
+        <p>A copy of your receipt is attached to this email.</p>
+        <p>Metro Sacco</p>
+      </div>
+    `,
+    attachments: [{ filename: `receipt-${mpesaReceiptNo || accountReference}.pdf`, content: pdfBuffer }],
+  });
+}
+
+async function sendPaymentReceipt({ checkoutRequestId }) {
+  const txnResult = await dbPool.query(
+    `SELECT * FROM pb_mpesa_transactions WHERE checkout_request_id = $1`,
+    [checkoutRequestId]
+  );
+  const txn = txnResult.rows[0];
+  if (!txn || txn.status !== 'success') return;
+
+  const memberResult = await dbPool.query(
+    `SELECT holders_name, email_add FROM pb_share_register WHERE acc_no = $1`,
+    [txn.member_no]
+  );
+  const member = memberResult.rows[0] || {};
+
+  const headerResult = await dbPool.query('SELECT header_name FROM pb_header LIMIT 1');
+  const organisationName = headerResult.rows[0]?.header_name || 'METROPOLITAN HOSPITAL SACCO LTD';
+
+  let newBalance = null;
+  if (txn.purpose === 'savings') {
+    const balResult = await dbPool.query(
+      `SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM ac_wdeposit_payable WHERE account_no = $1`,
+      [txn.account_reference]
+    );
+    newBalance = Number(balResult.rows[0]?.balance || 0);
+  } else {
+    const balResult = await dbPool.query(
+      `SELECT COALESCE(SUM(balance - credit_bal), 0) AS balance FROM ac_debtors WHERE account_no = $1 AND invoice_no = $2`,
+      [txn.member_no, txn.account_reference]
+    );
+    newBalance = Number(balResult.rows[0]?.balance || 0);
+  }
+
+  const pdfBuffer = await generatePaymentReceiptPdfBuffer({
+    organisationName,
+    memberName: member.holders_name,
+    memberNo: txn.member_no,
+    purpose: txn.purpose,
+    accountReference: txn.account_reference,
+    amount: txn.amount,
+    mpesaReceiptNo: txn.mpesa_receipt_no,
+    transactionDate: txn.transaction_date,
+    newBalance,
+  });
+
+  if (member.email_add) {
+    await sendPaymentReceiptEmail({
+      recipientEmail: member.email_add,
+      recipientName: member.holders_name,
+      memberNo: txn.member_no,
+      purpose: txn.purpose,
+      accountReference: txn.account_reference,
+      amount: txn.amount,
+      mpesaReceiptNo: txn.mpesa_receipt_no,
+      pdfBuffer,
+    });
+  }
+
+  await dbPool.query(
+    `UPDATE pb_mpesa_transactions SET receipt_emailed = true, updated_at = now() WHERE id = $1`,
+    [txn.id]
+  );
+}
+
+// ============================================
 // DEBUG: Clear all OTPs for a member
 // ============================================
 // Endpoints handled by THIS proxy server locally (PDF generation etc.)
@@ -458,13 +702,16 @@ const LOCAL_ENDPOINTS = [
   '/auth/authenticate',
   '/loan/apply',
   '/loan/dry-run',
-  '/loan-statement-direct', 
+  '/loan-statement-direct',
   '/withdrawable-statement-direct',
+  '/mpesa/stkpush',
+  '/mpesa/callback',
 ];
 
 const LOCAL_ENDPOINT_PREFIXES = [
   '/instant/',
   '/loan-applications/',
+  '/mpesa/status/',
 ];
 
 // Endpoints that must go to the Spring Boot backend (port 8080)
@@ -1829,6 +2076,269 @@ app.post('/api/v1/loan/apply', async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: M-PESA STK PUSH (INITIATE PAYMENT)
+// ============================================
+const MPESA_MIN_AMOUNT = 10;
+
+app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
+  const { memberNo, purpose, accountReference, amount, phoneNumber } = req.body || {};
+
+  const normalizedMemberNo = normalizeAuthMemberNo(memberNo);
+  const normalizedPurpose = String(purpose || '').trim().toLowerCase();
+  const normalizedAccountRef = String(accountReference || '').trim();
+  const numericAmount = Number(amount);
+
+  console.log(`\n?? [LOCAL] M-Pesa STK push requested by ${req.auth.memberNo} for ${normalizedPurpose}`);
+
+  if (req.auth.memberNo && normalizedMemberNo && req.auth.memberNo !== normalizedMemberNo) {
+    return res.status(403).json({ message: 'You can only make payments on your own account.' });
+  }
+
+  if (!['savings', 'loan_repayment'].includes(normalizedPurpose)) {
+    return res.status(400).json({ message: 'Purpose must be "savings" or "loan_repayment".' });
+  }
+
+  if (!normalizedAccountRef) {
+    return res.status(400).json({ message: 'Account reference is required.' });
+  }
+
+  if (!Number.isFinite(numericAmount) || numericAmount < MPESA_MIN_AMOUNT) {
+    return res.status(400).json({ message: `Enter a valid amount of at least KES ${MPESA_MIN_AMOUNT}.` });
+  }
+
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  if (!/^254\d{9}$/.test(normalizedPhone)) {
+    return res.status(400).json({ message: 'Enter a valid M-Pesa phone number.' });
+  }
+
+  try {
+    let transactionDesc;
+
+    if (normalizedPurpose === 'savings') {
+      const accountResult = await dbPool.query(
+        `SELECT r.acc_no
+         FROM pb_wdeposit_register r
+         WHERE r.acc_no = $1 AND upper(trim(r.share_accno)) = $2`,
+        [normalizedAccountRef, req.auth.memberNo]
+      );
+      if (accountResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Savings account not found for this member.' });
+      }
+      transactionDesc = 'Metro Sacco Deposit';
+    } else {
+      const loanResult = await dbPool.query(
+        `SELECT loan_no, mem_no,
+                COALESCE((SELECT SUM(COALESCE(d.balance, 0) - COALESCE(d.credit_bal, 0))
+                          FROM ac_debtors d WHERE d.account_no = pb_saccoloan.mem_no AND d.invoice_no = pb_saccoloan.loan_no), 0) AS outstanding
+         FROM pb_saccoloan
+         WHERE loan_no = $1 AND mem_no = $2`,
+        [normalizedAccountRef, req.auth.memberNo]
+      );
+      if (loanResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Loan not found for this member.' });
+      }
+      if (Number(loanResult.rows[0].outstanding) <= 0) {
+        return res.status(400).json({ message: 'This loan has no outstanding balance.' });
+      }
+      transactionDesc = `Loan ${normalizedAccountRef}`;
+    }
+
+    const stkResponse = await initiateStkPush({
+      phoneNo: normalizedPhone,
+      amount: numericAmount,
+      accountReference: normalizedAccountRef,
+      transactionDesc,
+    });
+
+    if (String(stkResponse.ResponseCode) !== '0') {
+      return res.status(502).json({
+        message: stkResponse.ResponseDescription || 'Could not initiate M-Pesa payment. Please try again.',
+      });
+    }
+
+    await dbPool.query(
+      `INSERT INTO pb_mpesa_transactions
+         (merchant_request_id, checkout_request_id, member_no, purpose, account_reference, phone_no, amount, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
+      [
+        stkResponse.MerchantRequestID,
+        stkResponse.CheckoutRequestID,
+        req.auth.memberNo,
+        normalizedPurpose,
+        normalizedAccountRef,
+        normalizedPhone,
+        numericAmount,
+      ]
+    );
+
+    return res.status(202).json({
+      success: true,
+      checkoutRequestId: stkResponse.CheckoutRequestID,
+      merchantRequestId: stkResponse.MerchantRequestID,
+      customerMessage: stkResponse.CustomerMessage || 'Check your phone to complete the payment.',
+    });
+  } catch (error) {
+    console.error('? M-Pesa STK push failed:', error.response?.data || error.message);
+    return res.status(500).json({ message: 'Unable to start M-Pesa payment right now. Please try again.' });
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: M-PESA CALLBACK
+// ============================================
+function extractMpesaCallbackMetadata(items) {
+  const map = {};
+  (items || []).forEach((item) => {
+    if (item && item.Name) {
+      map[item.Name] = item.Value;
+    }
+  });
+  return map;
+}
+
+app.post('/api/v1/mpesa/callback', async (req, res) => {
+  const ackResponse = { ResultCode: 0, ResultDesc: 'Accepted' };
+
+  if (process.env.MPESA_CALLBACK_SECRET && req.query.key !== process.env.MPESA_CALLBACK_SECRET) {
+    console.warn('?? [MPESA CALLBACK] Rejected callback with missing/invalid key');
+    return res.status(200).json(ackResponse);
+  }
+
+  try {
+    const callback = req.body?.Body?.stkCallback;
+    if (!callback || !callback.CheckoutRequestID) {
+      console.warn('?? [MPESA CALLBACK] Malformed callback payload');
+      return res.status(200).json(ackResponse);
+    }
+
+    const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = callback;
+
+    if (Number(ResultCode) === 0) {
+      const meta = extractMpesaCallbackMetadata(CallbackMetadata?.Item);
+      const mpesaReceiptNo = meta.MpesaReceiptNumber || null;
+      const paidAmount = Number(meta.Amount || 0);
+
+      const client = await dbPool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const txnResult = await client.query(
+          `UPDATE pb_mpesa_transactions
+           SET status = 'success',
+               result_code = $2,
+               result_desc = $3,
+               mpesa_receipt_no = $4,
+               transaction_date = now(),
+               callback_raw = $5,
+               updated_at = now()
+           WHERE checkout_request_id = $1 AND ledger_posted = false
+           RETURNING id, member_no, purpose, account_reference, amount`,
+          [CheckoutRequestID, ResultCode, ResultDesc, mpesaReceiptNo, JSON.stringify(req.body)]
+        );
+
+        if (txnResult.rows.length > 0) {
+          const txn = txnResult.rows[0];
+          const postedAmount = paidAmount || Number(txn.amount);
+
+          if (txn.purpose === 'savings') {
+            await client.query(
+              `INSERT INTO ac_wdeposit_payable (account_no, date, item, reference_no, receipt_no, credit, debit)
+               VALUES ($1, now(), 'M-Pesa Deposit', $2, $3, $4, 0)`,
+              [txn.account_reference, CheckoutRequestID, mpesaReceiptNo, postedAmount]
+            );
+          } else {
+            await client.query(
+              `INSERT INTO ac_debtors (account_no, invoice_no, date, item, reference_no, receipt_no, balance, credit_bal)
+               VALUES ($1, $2, now(), 'M-Pesa Repayment', $3, $4, 0, $5)`,
+              [txn.member_no, txn.account_reference, CheckoutRequestID, mpesaReceiptNo, postedAmount]
+            );
+          }
+
+          await client.query(
+            `UPDATE pb_mpesa_transactions SET ledger_posted = true, ledger_posted_at = now() WHERE id = $1`,
+            [txn.id]
+          );
+        } else {
+          // Already updated by a prior callback delivery for this CheckoutRequestID — update audit fields only.
+          await client.query(
+            `UPDATE pb_mpesa_transactions
+             SET callback_raw = $2, updated_at = now()
+             WHERE checkout_request_id = $1`,
+            [CheckoutRequestID, JSON.stringify(req.body)]
+          );
+        }
+
+        await client.query('COMMIT');
+
+        setImmediate(() => {
+          sendPaymentReceipt({ checkoutRequestId: CheckoutRequestID }).catch((err) => {
+            console.error('? Failed to send M-Pesa payment receipt:', err.message);
+          });
+        });
+      } catch (txnError) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw txnError;
+      } finally {
+        client.release();
+      }
+    } else {
+      const status = Number(ResultCode) === 1032 ? 'cancelled' : 'failed';
+      await dbPool.query(
+        `UPDATE pb_mpesa_transactions
+         SET status = $2, result_code = $3, result_desc = $4, callback_raw = $5, updated_at = now()
+         WHERE checkout_request_id = $1`,
+        [CheckoutRequestID, status, ResultCode, ResultDesc, JSON.stringify(req.body)]
+      );
+    }
+
+    return res.status(200).json(ackResponse);
+  } catch (error) {
+    console.error('? M-Pesa callback processing failed:', error.message);
+    return res.status(200).json(ackResponse);
+  }
+});
+
+// ============================================
+// LOCAL ENDPOINT: M-PESA PAYMENT STATUS
+// ============================================
+app.get('/api/v1/mpesa/status/:checkoutRequestId', requireAuth, async (req, res) => {
+  const { checkoutRequestId } = req.params;
+
+  try {
+    const result = await dbPool.query(
+      `SELECT status, result_desc, mpesa_receipt_no, amount, purpose, account_reference,
+              transaction_date, member_no, receipt_emailed
+       FROM pb_mpesa_transactions
+       WHERE checkout_request_id = $1`,
+      [checkoutRequestId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Payment request not found.' });
+    }
+
+    const txn = result.rows[0];
+    if (txn.member_no !== req.auth.memberNo) {
+      return res.status(403).json({ message: 'Not authorized to view this payment.' });
+    }
+
+    return res.json({
+      status: txn.status,
+      resultDesc: txn.result_desc,
+      receiptNo: txn.mpesa_receipt_no,
+      amount: Number(txn.amount),
+      purpose: txn.purpose,
+      accountReference: txn.account_reference,
+      transactionDate: txn.transaction_date,
+      receiptEmailed: txn.receipt_emailed,
+    });
+  } catch (error) {
+    console.error('? Failed to fetch M-Pesa status:', error.message);
+    return res.status(500).json({ message: 'Unable to check payment status right now.' });
   }
 });
 
