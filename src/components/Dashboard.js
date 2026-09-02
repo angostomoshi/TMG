@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCoins, FaFileInvoiceDollar, FaHandHoldingUsd, FaMobileAlt, FaPiggyBank, FaUniversity, FaUserFriends } from 'react-icons/fa';
+import { FaCoins, FaFileInvoiceDollar, FaHandHoldingUsd, FaPiggyBank, FaUniversity, FaUserFriends } from 'react-icons/fa';
 import Alert from './Alert';
 
 const Dashboard = ({ userData }) => {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState(() => readDashboardMetrics());
+  const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState(() => {
     const passedProfile = userData && Object.keys(userData).length ? userData : null;
     return passedProfile || readStoredJson('memberProfile', readStoredJson('memberData', {}));
@@ -39,6 +40,7 @@ const Dashboard = ({ userData }) => {
       };
 
       try {
+        setMetrics((current) => ({ ...current, loading: true, notice: '' }));
         const [profileResponse, savingsResponse, shareCapitalResponse, dividendResponse, dividendTransactionsResponse, activeLoansResponse, pendingLoansResponse] = await Promise.allSettled([
           fetch(`/api/v1/member/${currentMemberNo}`, { headers, credentials: 'include' }),
           fetch(`/api/v1/savings/sumTotal/${currentMemberNo}`, { headers, credentials: 'include' }),
@@ -98,7 +100,21 @@ const Dashboard = ({ userData }) => {
     return () => {
       mounted = false;
     };
-  }, [memberNo]);
+  }, [memberNo, refreshKey]);
+
+  useEffect(() => {
+    const refreshAfterMpesa = () => {
+      localStorage.removeItem('dashboardMetrics');
+      setRefreshKey((key) => key + 1);
+    };
+
+    window.addEventListener('mpesa:payment-success', refreshAfterMpesa);
+    window.addEventListener('storage', refreshAfterMpesa);
+    return () => {
+      window.removeEventListener('mpesa:payment-success', refreshAfterMpesa);
+      window.removeEventListener('storage', refreshAfterMpesa);
+    };
+  }, []);
 
   const summaryCards = useMemo(() => [
     {
@@ -136,10 +152,6 @@ const Dashboard = ({ userData }) => {
   ], [metrics]);
 
   const quickActions = [
-    { label: 'Deposit via M-Pesa', description: 'Top up your savings straight from your phone.', path: '/deposit', icon: FaMobileAlt, highlight: true },
-    ...(metrics.loanBalance > 0 ? [
-      { label: 'Repay loan via M-Pesa', description: 'Pay down your loan balance instantly.', path: '/loan-statement', icon: FaMobileAlt, highlight: true }
-    ] : []),
     { label: 'Apply for instant loan', description: 'Preview repayment, interest, and monthly deduction.', path: '/apply-loan', icon: FaHandHoldingUsd },
     { label: 'Download savings statement', description: 'Export a clean PDF for your records.', path: '/share-statement', icon: FaFileInvoiceDollar },
     { label: 'Review guarantor position', description: 'See loans where you appear as guarantor.', path: '/guarantors', icon: FaUserFriends }
@@ -149,6 +161,12 @@ const Dashboard = ({ userData }) => {
     { label: 'Profile check', text: 'Confirm your phone and email are current before payment periods.' },
     { label: 'Dividend rule', text: 'Dividends are calculated from last year’s eligible shares.' },
     { label: 'Support', text: 'For help, email sacco@metro-hospital.com with your member number.' }
+  ];
+
+  const mpesaActions = [
+    { label: 'Savings', value: formatCurrency(metrics.savings), path: '/deposit' },
+    { label: 'Withdrawable', value: 'Choose account', path: '/deposit' },
+    { label: 'Loan pay', value: metrics.loanBalance > 0 ? formatCurrency(metrics.loanBalance) : 'No open balance', path: '/deposit' }
   ];
 
   return (
@@ -190,6 +208,24 @@ const Dashboard = ({ userData }) => {
           />
         ))}
       </div>
+
+      <section className="mpesa-dashboard-strip">
+        <div className="mpesa-dashboard-logo" aria-label="M-Pesa">
+          <span>m</span><i aria-hidden="true"><b /></i><span>pesa</span>
+        </div>
+        <div className="mpesa-dashboard-copy">
+          <strong>Pay with M-Pesa</strong>
+          <span>Deposits and loan repayments post through the Sacco ledger after Safaricom confirms the callback.</span>
+        </div>
+        <div className="mpesa-dashboard-options">
+          {mpesaActions.map((item) => (
+            <button type="button" key={item.label} onClick={() => navigate(item.path)}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <div className="dashboard-main-grid">
         <section className="dashboard-panel">

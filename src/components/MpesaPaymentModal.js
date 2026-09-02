@@ -15,6 +15,53 @@ function displayPhone(value) {
   return digits;
 }
 
+function formatReceiptDate(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toLocaleString('en-KE');
+  return date.toLocaleString('en-KE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function MpesaLogo({ className = '' }) {
+  return (
+    <div className={`mpesa-logo ${className}`} aria-label="M-Pesa">
+      <span>m</span>
+      <i aria-hidden="true">
+        <b />
+      </i>
+      <span>pesa</span>
+    </div>
+  );
+}
+
+function friendlyPaymentMessage(message, fallback = 'We could not complete this payment request. Please try again.') {
+  const text = String(message || '').trim();
+  if (!text) return fallback;
+
+  if (/auth|token|session|expired|forbidden|own account/i.test(text)) {
+    return 'Your session needs a refresh. Please sign in again before making this payment.';
+  }
+  if (/phone|number/i.test(text)) {
+    return 'Please enter a valid M-Pesa phone number and try again.';
+  }
+  if (/amount|minimum|at least/i.test(text)) {
+    return 'Please enter a valid amount of at least KES 10.';
+  }
+  if (/not found|account|loan/i.test(text)) {
+    return 'We could not confirm this account or loan. Please refresh the page and try again.';
+  }
+  if (/mismatch|ledger|database|configured|callback|secret|consumer|passkey|shortcode|server/i.test(text)) {
+    return 'The payment could not be completed safely right now. Please try again or contact the Sacco office.';
+  }
+
+  return text.length > 140 ? fallback : text;
+}
+
 const MpesaPaymentModal = ({
   isOpen,
   onClose,
@@ -53,16 +100,40 @@ const MpesaPaymentModal = ({
   if (!isOpen) return null;
 
   const isLoan = purpose === 'loan_repayment';
-  const purposeLabel = isLoan ? 'Loan Repayment' : 'Savings Deposit';
-  const refLabel = isLoan ? 'Loan number' : 'Account number';
+  const purposeLabel = isLoan
+    ? 'Loan Repayment'
+    : purpose === 'withdrawable_deposit'
+      ? 'Withdrawable Deposit'
+      : 'Savings Deposit';
+  const refLabel = isLoan
+    ? 'Loan number'
+    : purpose === 'member_deposit'
+      ? 'Member number'
+      : 'Account number';
 
   const stopPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   };
 
+  const publishPaymentSuccess = (payment) => {
+    const detail = {
+      ...payment,
+      purpose,
+      accountReference,
+      memberNo,
+      completedAt: new Date().toISOString(),
+    };
+
+    localStorage.removeItem('dashboardMetrics');
+    localStorage.removeItem('savingsTransactions');
+    localStorage.removeItem('withdrawableData');
+    localStorage.setItem('mpesaLastPayment', JSON.stringify(detail));
+    window.dispatchEvent(new CustomEvent('mpesa:payment-success', { detail }));
+  };
+
   const pollStatus = (checkoutRequestId) => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem('proxyAuthToken') || localStorage.getItem('authToken');
     pollStartRef.current = Date.now();
 
     tickRef.current = setInterval(() => {
@@ -87,11 +158,16 @@ const MpesaPaymentModal = ({
           stopPolling();
           setStage('success');
           setReceipt(data);
-          if (onSuccess) onSuccess();
+          publishPaymentSuccess(data);
+          if (onSuccess) onSuccess(data);
         } else if (data.status === 'failed' || data.status === 'cancelled') {
           stopPolling();
           setStage('failed');
-          setMessage(data.resultDesc || 'The payment was not completed.');
+          setMessage(
+            data.status === 'cancelled'
+              ? 'Payment cancelled. You can try again whenever you are ready.'
+              : friendlyPaymentMessage(data.resultDesc, 'The payment was not completed. Please try again.')
+          );
         }
       } catch (err) {
         // transient network error while polling — keep trying until timeout
@@ -116,7 +192,7 @@ const MpesaPaymentModal = ({
     setMessage('');
 
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('proxyAuthToken') || localStorage.getItem('authToken');
       const response = await fetch('/api/v1/mpesa/stkpush', {
         method: 'POST',
         headers: {
@@ -136,7 +212,7 @@ const MpesaPaymentModal = ({
 
       if (!response.ok) {
         setStage('failed');
-        setMessage(data.message || 'Could not start the M-Pesa payment.');
+        setMessage(friendlyPaymentMessage(data.message, 'We could not send the M-Pesa prompt. Please try again.'));
         return;
       }
 
@@ -146,7 +222,7 @@ const MpesaPaymentModal = ({
       pollStatus(data.checkoutRequestId);
     } catch (err) {
       setStage('failed');
-      setMessage('Could not reach the server. Please try again.');
+      setMessage('We could not send the request right now. Please check your connection and try again.');
     }
   };
 
@@ -166,13 +242,8 @@ const MpesaPaymentModal = ({
         <button type="button" className="mpesa-modal-close" onClick={handleClose} aria-label="Close">&times;</button>
 
         <div className="mpesa-modal-header">
-          <div className="mpesa-modal-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2 3 7v6c0 5 3.8 8.7 9 9 5.2-.3 9-4 9-9V7l-9-5Z" fill="currentColor" opacity="0.16" />
-              <path d="M8.5 12.2 11 14.7l4.7-5.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <span className="mpesa-modal-badge">M-Pesa</span>
+          <MpesaLogo className="mpesa-modal-mark" />
+          <span className="mpesa-modal-badge">Secure phone payment</span>
           <h2 id="mpesa-modal-title">{purposeLabel}</h2>
           <p>{refLabel} <strong>{accountReference}</strong></p>
         </div>
@@ -258,20 +329,31 @@ const MpesaPaymentModal = ({
 
         {stage === 'success' && receipt && (
           <div className="mpesa-modal-status mpesa-modal-success">
-            <div className="mpesa-modal-check">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M5 12.5 10 17l9-10" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+            <div className="mpesa-approval-top">
+              <div className="mpesa-modal-check">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M5 12.5 10 17l9-10" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <span>Approved</span>
             </div>
-            <p>Payment received</p>
-            <div className="mpesa-receipt">
-              <div><span>Amount</span><strong>KES {formatKES(receipt.amount)}</strong></div>
-              <div><span>M-Pesa Receipt</span><strong>{receipt.receiptNo}</strong></div>
+            <p>Payment received successfully</p>
+            <div className="mpesa-approval-card">
+              <div className="mpesa-approval-amount">
+                <span>Amount paid</span>
+                <strong>KES {formatKES(receipt.amount)}</strong>
+              </div>
+              <div className="mpesa-receipt">
+                <div><span>M-Pesa receipt</span><strong>{receipt.receiptNo || 'Confirmed'}</strong></div>
+                <div><span>{refLabel}</span><strong>{receipt.accountReference || accountReference}</strong></div>
+                <div><span>Payment type</span><strong>{purposeLabel}</strong></div>
+                <div><span>Confirmed</span><strong>{formatReceiptDate(receipt.transactionDate)}</strong></div>
+              </div>
             </div>
             <span className="mpesa-modal-hint">
-              {receipt.receiptEmailed ? 'Receipt emailed to you.' : 'Your receipt will be emailed shortly.'}
+              {receipt.receiptEmailed ? 'Receipt emailed to you.' : 'Your statement and dashboard are refreshing now.'}
             </span>
-            <button type="button" className="mpesa-modal-submit" onClick={handleClose}>Done</button>
+            <button type="button" className="mpesa-modal-submit" onClick={handleClose}>Close</button>
           </div>
         )}
 
@@ -292,7 +374,7 @@ const MpesaPaymentModal = ({
         .mpesa-modal-overlay {
           position: fixed;
           inset: 0;
-          background: radial-gradient(circle at top right, rgba(0, 163, 181, 0.16), rgba(10, 44, 72, 0.6) 60%);
+          background: radial-gradient(circle at top right, rgba(34, 197, 94, 0.18), rgba(12, 45, 31, 0.62) 60%);
           backdrop-filter: blur(3px);
           display: flex;
           align-items: center;
@@ -310,8 +392,8 @@ const MpesaPaymentModal = ({
         .mpesa-modal {
           position: relative;
           background: rgba(255, 255, 255, 0.97);
-          border: 1px solid rgba(226, 232, 240, 0.9);
-          border-radius: 24px;
+          border: 1px solid rgba(187, 247, 208, 0.9);
+          border-radius: 18px;
           padding: 2rem 1.85rem 1.75rem;
           max-width: 400px;
           width: 100%;
@@ -356,25 +438,78 @@ const MpesaPaymentModal = ({
           margin-bottom: 1.6rem;
         }
 
-        .mpesa-modal-mark {
-          width: 52px;
-          height: 52px;
-          margin: 0 auto 0.75rem;
-          border-radius: 16px;
-          background: linear-gradient(135deg, var(--brand, #00a3b5), var(--brand-dark, #087987));
-          color: #fff;
-          display: flex;
+        .mpesa-logo {
+          --mpesa-green: #2ec66d;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 14px 28px rgba(0, 163, 181, 0.28);
+          gap: 0.02em;
+          font-weight: 900;
+          letter-spacing: 0;
+          line-height: 1;
+          color: #fff;
+          text-transform: lowercase;
+          font-family: Arial, Helvetica, sans-serif;
         }
 
-        .mpesa-modal-mark svg { width: 26px; height: 26px; }
+        .mpesa-logo i {
+          position: relative;
+          display: inline-block;
+          width: 0.78em;
+          height: 1.12em;
+          margin: 0 0.03em;
+          border: 0.08em solid currentColor;
+          border-radius: 0.12em;
+          transform: translateY(0.02em);
+        }
+
+        .mpesa-logo i::before,
+        .mpesa-logo i::after {
+          content: "";
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          background: currentColor;
+          border-radius: 999px;
+        }
+
+        .mpesa-logo i::before {
+          top: 0.1em;
+          width: 0.24em;
+          height: 0.04em;
+        }
+
+        .mpesa-logo i::after {
+          bottom: 0.08em;
+          width: 0.14em;
+          height: 0.14em;
+        }
+
+        .mpesa-logo i b {
+          position: absolute;
+          inset: 0.22em 0.12em;
+          display: block;
+          background: linear-gradient(135deg, #ff2b4f 0 48%, var(--mpesa-green) 48% 100%);
+          border-radius: 0.04em;
+        }
+
+        .mpesa-modal-mark {
+          width: fit-content;
+          min-width: 132px;
+          min-height: 54px;
+          margin: 0 auto 0.75rem;
+          border-radius: 14px;
+          background: #2ec66d;
+          color: #fff;
+          padding: 0.55rem 1.15rem;
+          font-size: 2rem;
+          box-shadow: 0 16px 32px rgba(46, 198, 109, 0.28);
+        }
 
         .mpesa-modal-badge {
           display: inline-block;
-          background: var(--brand-soft, #e7fbfd);
-          color: var(--brand-dark, #087987);
+          background: #ecfdf5;
+          color: #118c3f;
           font-size: 0.68rem;
           font-weight: 800;
           letter-spacing: 0.08em;
@@ -420,7 +555,7 @@ const MpesaPaymentModal = ({
           border: 1px solid var(--border-light, #e2e8f0);
           background: var(--bg-light, #f7fafc);
           color: var(--text-secondary, #4a5568);
-          border-radius: 12px;
+          border-radius: 10px;
           padding: 0.5rem 0.4rem;
           font-size: 0.78rem;
           font-weight: 700;
@@ -430,13 +565,13 @@ const MpesaPaymentModal = ({
         }
 
         .mpesa-chip:hover {
-          border-color: rgba(0, 163, 181, 0.4);
+          border-color: rgba(34, 197, 94, 0.45);
         }
 
         .mpesa-chip.active {
-          background: var(--brand-soft, #e7fbfd);
-          border-color: var(--brand, #00a3b5);
-          color: var(--brand-dark, #087987);
+          background: #ecfdf5;
+          border-color: #2bbf61;
+          color: #118c3f;
         }
 
         .mpesa-modal-form label {
@@ -454,15 +589,15 @@ const MpesaPaymentModal = ({
           display: flex;
           align-items: stretch;
           border: 1.5px solid var(--border-light, #e2e8f0);
-          border-radius: 12px;
+          border-radius: 10px;
           overflow: hidden;
           transition: border-color 0.15s;
           background: #fff;
         }
 
         .mpesa-input-wrap:focus-within {
-          border-color: var(--brand, #00a3b5);
-          box-shadow: 0 0 0 3px var(--ring, rgba(0, 163, 181, 0.16));
+          border-color: #2bbf61;
+          box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
         }
 
         .mpesa-input-prefix {
@@ -490,19 +625,20 @@ const MpesaPaymentModal = ({
         }
 
         .mpesa-modal-error {
-          color: var(--danger, #e74c3c);
+          color: #7a4b00;
           font-size: 0.8rem;
           margin: 0;
-          background: #fef2f2;
+          background: #fffbeb;
+          border: 1px solid #fde68a;
           padding: 0.5rem 0.7rem;
-          border-radius: 8px;
+          border-radius: 10px;
         }
 
         .mpesa-modal-submit {
           background: linear-gradient(135deg, var(--secondary, #27ae60), var(--secondary-dark, #1e8e4a));
           color: #fff;
           border: none;
-          border-radius: 12px;
+          border-radius: 10px;
           padding: 0.8rem 1rem;
           font-weight: 800;
           font-size: 0.92rem;
@@ -552,7 +688,7 @@ const MpesaPaymentModal = ({
           height: 38px;
           border-radius: 50%;
           border: 3px solid var(--border-light, #e2e8f0);
-          border-top-color: var(--brand, #00a3b5);
+          border-top-color: #2bbf61;
           animation: mpesa-spin 0.8s linear infinite;
         }
 
@@ -560,8 +696,8 @@ const MpesaPaymentModal = ({
           width: 56px;
           height: 56px;
           border-radius: 50%;
-          background: var(--brand-soft, #e7fbfd);
-          color: var(--brand-dark, #087987);
+          background: #ecfdf5;
+          color: #118c3f;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -571,8 +707,8 @@ const MpesaPaymentModal = ({
         .mpesa-phone-prompt svg { width: 24px; height: 24px; }
 
         @keyframes mpesa-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(0, 163, 181, 0.28); }
-          50% { box-shadow: 0 0 0 10px rgba(0, 163, 181, 0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.28); }
+          50% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -593,7 +729,7 @@ const MpesaPaymentModal = ({
 
         .mpesa-progress-fill {
           height: 100%;
-          background: linear-gradient(90deg, var(--brand, #00a3b5), var(--brand-dark, #087987));
+          background: linear-gradient(90deg, #2bbf61, #118c3f);
           border-radius: 100px;
           transition: width 0.5s linear;
         }
@@ -620,25 +756,90 @@ const MpesaPaymentModal = ({
           box-shadow: 0 14px 28px rgba(220, 38, 38, 0.24);
         }
 
-        .mpesa-receipt {
-          width: 100%;
-          background: var(--bg-light, #f7fafc);
-          border: 1px solid var(--border-light, #e2e8f0);
-          border-radius: 14px;
-          padding: 0.85rem 1rem;
+        .mpesa-approval-top {
           display: flex;
           flex-direction: column;
+          align-items: center;
           gap: 0.45rem;
+        }
+
+        .mpesa-approval-top span {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 1.7rem;
+          padding: 0.25rem 0.75rem;
+          border-radius: 999px;
+          background: #ecfdf5;
+          color: #118c3f;
+          font-size: 0.72rem;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .mpesa-approval-card {
+          width: 100%;
+          overflow: hidden;
+          border: 1px solid rgba(187, 247, 208, 0.9);
+          border-radius: 14px;
+          background: #ffffff;
+          box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+        }
+
+        .mpesa-approval-amount {
+          padding: 1rem;
+          background: linear-gradient(135deg, #2ec66d, #0f8a3a);
+          color: #ffffff;
+          text-align: left;
+        }
+
+        .mpesa-approval-amount span,
+        .mpesa-approval-amount strong {
+          display: block;
+        }
+
+        .mpesa-approval-amount span {
+          color: rgba(255, 255, 255, 0.78);
+          font-size: 0.72rem;
+          font-weight: 800;
+          text-transform: uppercase;
+        }
+
+        .mpesa-approval-amount strong {
+          margin-top: 0.25rem;
+          font-size: 1.45rem;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .mpesa-receipt {
+          width: 100%;
+          background: #ffffff;
+          padding: 0.35rem 1rem 0.85rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
         }
 
         .mpesa-receipt div {
           display: flex;
           justify-content: space-between;
+          gap: 1rem;
+          border-bottom: 1px solid #edf2f7;
+          padding: 0.58rem 0;
           font-size: 0.85rem;
         }
 
+        .mpesa-receipt div:last-child {
+          border-bottom: 0;
+        }
+
         .mpesa-receipt span { color: var(--text-muted, #718096); }
-        .mpesa-receipt strong { color: var(--text-primary, #1a202c); font-variant-numeric: tabular-nums; }
+        .mpesa-receipt strong {
+          color: var(--text-primary, #1a202c);
+          font-variant-numeric: tabular-nums;
+          text-align: right;
+        }
       `}</style>
     </div>
   );

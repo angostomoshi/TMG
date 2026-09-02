@@ -5,6 +5,7 @@ class AuthService {
     this.memberDataKey = 'memberData';
     this.memberNumberKey = 'memberNumber';
     this.authTokenKey = 'authToken';
+    this.proxyAuthTokenKey = 'proxyAuthToken';
     this.userInfoKey = 'userInfo';
   }
 
@@ -38,6 +39,9 @@ class AuthService {
     if (data.token) {
       localStorage.setItem(this.authTokenKey, data.token);
     }
+    if (data.proxyToken) {
+      localStorage.setItem(this.proxyAuthTokenKey, data.proxyToken);
+    }
     
     if (data.user) {
       localStorage.setItem(this.userInfoKey, JSON.stringify(data.user));
@@ -49,6 +53,7 @@ class AuthService {
     localStorage.removeItem(this.memberDataKey);
     localStorage.removeItem(this.memberNumberKey);
     localStorage.removeItem(this.authTokenKey);
+    localStorage.removeItem(this.proxyAuthTokenKey);
     localStorage.removeItem(this.userInfoKey);
   }
 

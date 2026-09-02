@@ -12,6 +12,7 @@ function ShareStatement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [headerData, setHeaderData] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const brandColor = '#00a3b5';
 
   // Process savings data from API response - FIXED to handle the exact data structure
@@ -19,6 +20,9 @@ function ShareStatement() {
     console.log('Processing savings data:', data);
     
     let transactions = [];
+    const apiTotalSavings = data && typeof data === 'object' && !Array.isArray(data)
+      ? Number(data.totalSavings ?? data.total ?? data.balance)
+      : NaN;
     
     // Handle array directly (most common case)
     if (Array.isArray(data)) {
@@ -50,8 +54,8 @@ function ShareStatement() {
     setShareTransactions(formattedTransactions);
     
     // Calculate totals - use the last transaction's runningTotal or sum all savings
-    let totalSavings = 0;
-    if (formattedTransactions.length > 0) {
+    let totalSavings = Number.isFinite(apiTotalSavings) ? apiTotalSavings : 0;
+    if (!Number.isFinite(apiTotalSavings) && formattedTransactions.length > 0) {
       // Use the last transaction's running amount if available
       const lastTransaction = formattedTransactions[formattedTransactions.length - 1];
       totalSavings = lastTransaction.runningAmt || 0;
@@ -62,9 +66,12 @@ function ShareStatement() {
       }
     }
     
-    setTotals({
-      totalSavings: totalSavings
-    });
+    const nextTotals = { totalSavings };
+    setTotals(nextTotals);
+    localStorage.setItem('savingsTransactions', JSON.stringify({
+      transactions: formattedTransactions,
+      totals: nextTotals
+    }));
   };
 
   // Fetch header configuration
@@ -100,21 +107,8 @@ function ShareStatement() {
 
   // Main data fetch - with immediate cached data
   useEffect(() => {
-    // First, try to load cached data immediately
-    const cachedSavings = localStorage.getItem('savingsTransactions');
     const cachedMember = localStorage.getItem('memberProfile');
-    
-    if (cachedSavings) {
-      try {
-        const parsed = JSON.parse(cachedSavings);
-        setShareTransactions(parsed.transactions || []);
-        setTotals(parsed.totals || { totalSavings: 0 });
-        setLoading(false);
-      } catch(e) {
-        console.error('Error loading cached savings:', e);
-      }
-    }
-    
+
     if (cachedMember) {
       try {
         setMemberData(JSON.parse(cachedMember));
@@ -199,15 +193,6 @@ function ShareStatement() {
           if (savingsData && (Array.isArray(savingsData) ? savingsData.length > 0 : Object.keys(savingsData).length > 0)) {
             processSavingsData(savingsData);
             
-            // Get current totals after processing
-            const currentTotals = { totalSavings: totals.totalSavings };
-            
-            // Cache the savings data
-            const savingsToCache = { 
-              transactions: shareTransactions.length > 0 ? shareTransactions : [], 
-              totals: currentTotals 
-            };
-            localStorage.setItem('savingsTransactions', JSON.stringify(savingsToCache));
           } else {
             setError('No savings records were found for this member.');
             setShareTransactions([]);
@@ -218,22 +203,49 @@ function ShareStatement() {
           setShareTransactions([]);
           setTotals({ totalSavings: 0 });
         } else {
-          setError(`We could not fetch savings data right now. Server response: ${savingsResponse.status}.`);
+          setError('We could not refresh your savings statement right now. Please try again.');
           setShareTransactions([]);
           setTotals({ totalSavings: 0 });
         }
         
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError('We could not reach the server right now. Please check your connection and try again.');
-        setShareTransactions([]);
-        setTotals({ totalSavings: 0 });
+        const cachedSavings = localStorage.getItem('savingsTransactions');
+        if (cachedSavings) {
+          try {
+            const parsed = JSON.parse(cachedSavings);
+            setShareTransactions(parsed.transactions || []);
+            setTotals(parsed.totals || { totalSavings: 0 });
+            setError('We could not refresh your statement, so we are showing the last saved copy.');
+          } catch {
+            setError('We could not reach the server right now. Please check your connection and try again.');
+            setShareTransactions([]);
+            setTotals({ totalSavings: 0 });
+          }
+        } else {
+          setError('We could not reach the server right now. Please check your connection and try again.');
+          setShareTransactions([]);
+          setTotals({ totalSavings: 0 });
+        }
       } finally {
         setLoading(false);
       }
     };
     
     fetchData();
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const refreshAfterMpesa = (event) => {
+      const purpose = event?.detail?.purpose;
+      if (purpose && purpose !== 'member_deposit') return;
+      localStorage.removeItem('savingsTransactions');
+      setLoading(true);
+      setRefreshKey((key) => key + 1);
+    };
+
+    window.addEventListener('mpesa:payment-success', refreshAfterMpesa);
+    return () => window.removeEventListener('mpesa:payment-success', refreshAfterMpesa);
   }, []);
 
   const handleDownloadPDF = async () => {

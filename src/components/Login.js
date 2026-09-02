@@ -26,6 +26,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     
     setLoading(true);
     localStorage.removeItem('authToken');
+    localStorage.removeItem('proxyAuthToken');
     
     try {
       // Call through proxy server (NOT directly to live server)
@@ -52,6 +53,9 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
         
         if (authData.token) {
           localStorage.setItem('authToken', authData.token);
+        }
+        if (authData.proxyToken) {
+          localStorage.setItem('proxyAuthToken', authData.proxyToken);
         }
         
         // Fetch member details through proxy

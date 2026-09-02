@@ -114,6 +114,45 @@ function requireAuth(req, res, next) {
   return next();
 }
 
+function createProxyAuthToken({ memberNo, role = 'USER', userId = null }) {
+  const normalizedMemberNo = normalizeAuthMemberNo(memberNo);
+  return jwt.sign(
+    {
+      sub: normalizedMemberNo,
+      memberNo: normalizedMemberNo,
+      role: String(role || 'USER').toUpperCase(),
+      userId,
+      proxyIssued: true,
+    },
+    PROXY_JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+}
+
+function requireVerifiedProxyAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const match = authHeader && String(authHeader).match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ message: 'Authentication required.' });
+  }
+
+  try {
+    const decoded = jwt.verify(match[1], PROXY_JWT_SECRET);
+    const memberNo = normalizeAuthMemberNo(decoded.memberNo || decoded.sub);
+    if (!memberNo) {
+      return res.status(401).json({ message: 'Invalid authentication token.' });
+    }
+    req.auth = {
+      memberNo,
+      role: String(decoded.role || 'USER').toUpperCase(),
+      userId: decoded.userId || null,
+    };
+    return next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid or expired authentication token.' });
+  }
+}
+
 function addForwardedAuthorization(forwardHeaders, authHeader) {
   if (!authHeader) return;
 
@@ -293,6 +332,36 @@ async function getEmailServerSettingsList() {
   }
 
   return result.rows;
+}
+
+function formatNairobiDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${partMap.year}-${partMap.month}-${partMap.day}`;
+}
+
+function getMpesaPurposeLabel(purpose) {
+  switch (purpose) {
+    case 'loan_repayment':
+      return 'Loan Repayment';
+    case 'withdrawable_deposit':
+    case 'savings':
+      return 'Withdrawable Deposit';
+    case 'member_deposit':
+      return 'Savings Deposit';
+    default:
+      return 'M-Pesa Payment';
+  }
 }
 
 async function getEmailServerSettings() {
@@ -576,7 +645,7 @@ async function generatePaymentReceiptPdfBuffer({
     doc.on('error', reject);
 
     const formatKES = (val) => Number(val || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const purposeLabel = purpose === 'loan_repayment' ? 'Loan Repayment' : 'Savings Deposit';
+    const purposeLabel = getMpesaPurposeLabel(purpose);
 
     doc.font('Helvetica-Bold').fontSize(14).text(organisationName, { align: 'center' });
     doc.moveDown(0.3);
@@ -612,7 +681,7 @@ async function generatePaymentReceiptPdfBuffer({
 
 async function sendPaymentReceiptEmail({ recipientEmail, recipientName, memberNo, purpose, accountReference, amount, mpesaReceiptNo, pdfBuffer }) {
   const formatKES = (val) => Number(val || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const purposeLabel = purpose === 'loan_repayment' ? 'loan repayment' : 'savings deposit';
+  const purposeLabel = getMpesaPurposeLabel(purpose).toLowerCase();
 
   return sendWithSmtpFallback({
     to: recipientEmail,
@@ -648,10 +717,16 @@ async function sendPaymentReceipt({ checkoutRequestId }) {
   const organisationName = headerResult.rows[0]?.header_name || 'METROPOLITAN HOSPITAL SACCO LTD';
 
   let newBalance = null;
-  if (txn.purpose === 'savings') {
+  if (txn.purpose === 'withdrawable_deposit' || txn.purpose === 'savings') {
     const balResult = await dbPool.query(
       `SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM ac_wdeposit_payable WHERE account_no = $1`,
       [txn.account_reference]
+    );
+    newBalance = Number(balResult.rows[0]?.balance || 0);
+  } else if (txn.purpose === 'member_deposit') {
+    const balResult = await dbPool.query(
+      `SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM ac_wdeposit_payable WHERE account_no = $1`,
+      [txn.member_no]
     );
     newBalance = Number(balResult.rows[0]?.balance || 0);
   } else {
@@ -715,6 +790,7 @@ const LOCAL_ENDPOINT_PREFIXES = [
   '/instant/',
   '/loan-applications/',
   '/mpesa/status/',
+  '/savings/',
 ];
 
 // Endpoints that must go to the Spring Boot backend (port 8080)
@@ -985,7 +1061,13 @@ app.post('/api/v1/auth/authenticate', async (req, res) => {
       });
 
       console.log(`   Spring authentication succeeded for ${memberNo}`);
-      return res.status(springResponse.status).json(springResponse.data);
+      const body = springResponse.data && typeof springResponse.data === 'object'
+        ? springResponse.data
+        : { data: springResponse.data };
+      return res.status(springResponse.status).json({
+        ...body,
+        proxyToken: createProxyAuthToken({ memberNo }),
+      });
     } catch (springError) {
       const status = springError.response?.status;
       const body = springError.response?.data;
@@ -1041,21 +1123,12 @@ app.post('/api/v1/auth/authenticate', async (req, res) => {
 
     const member = memberResult.rows[0] || {};
     const role = String(matchedUser.role || 'USER').toUpperCase();
-    const token = jwt.sign(
-      {
-        sub: matchedUser.member_no,
-        memberNo: matchedUser.member_no,
-        role,
-        userId: matchedUser.id,
-        proxyIssued: true,
-      },
-      PROXY_JWT_SECRET,
-      { expiresIn: '12h' }
-    );
+    const token = createProxyAuthToken({ memberNo: matchedUser.member_no, role, userId: matchedUser.id });
 
     return res.json({
       success: true,
       token,
+      proxyToken: token,
       memberNo: matchedUser.member_no,
       role,
       id: matchedUser.id,
@@ -1354,10 +1427,19 @@ app.get('/api/v1/savings/sumTotal/:memberNo', async (req, res) => {
 
   try {
     const result = await dbPool.query(
-      `SELECT COALESCE(SUM(REPLACE(credit, ',', '')::numeric), 0) AS balance
-       FROM integration.shares_summ_view
-       WHERE upper(trim(mem_no)) = $1
-         AND deposit = 'Deposit'`,
+      `WITH savings_entries AS (
+         SELECT COALESCE(credit, 0) AS credit, COALESCE(debit, 0) AS debit
+         FROM ac_shares_ledger
+         WHERE upper(trim(account_no)) = $1
+           AND transaction_type ILIKE 'sha%'
+         UNION ALL
+         SELECT COALESCE(credit, 0) AS credit, COALESCE(debit, 0) AS debit
+         FROM ac_wdeposit_payable
+         WHERE upper(trim(account_no)) = $1
+           AND item ILIKE 'M-Pesa Savings Deposit%'
+       )
+       SELECT COALESCE(SUM(credit - debit), 0) AS balance
+       FROM savings_entries`,
       [memberNo]
     );
 
@@ -1468,30 +1550,67 @@ app.get('/api/v1/savings/:memberNo', async (req, res) => {
 
   try {
     const result = await dbPool.query(
-      `SELECT p.date,
-              initcap(p.item) AS item,
-              p.reference_no,
-              p.debit,
-              p.credit,
-              r.acc_no,
-              SUM(COALESCE(p.credit, 0) - COALESCE(p.debit, 0))
-                OVER (ORDER BY p.date ASC NULLS FIRST, p.account_no ASC, p.reference_no ASC ROWS UNBOUNDED PRECEDING) AS running_balance
-       FROM pb_wdeposit_register r
-       JOIN ac_wdeposit_payable p ON p.account_no = r.acc_no
-       WHERE upper(trim(r.share_accno)) = $1
-       ORDER BY p.date ASC NULLS LAST, p.account_no ASC, p.reference_no ASC`,
+      `WITH savings_entries AS (
+         SELECT date,
+                item,
+                reference_no,
+                debit,
+                credit,
+                id::text AS sort_key,
+                account_no
+         FROM ac_shares_ledger
+         WHERE upper(trim(account_no)) = $1
+           AND transaction_type ILIKE 'sha%'
+         UNION ALL
+         SELECT date,
+                item,
+                reference_no,
+                debit,
+                credit,
+                COALESCE(reference_no, receipt_no, '') AS sort_key,
+                account_no
+         FROM ac_wdeposit_payable
+         WHERE upper(trim(account_no)) = $1
+           AND item ILIKE 'M-Pesa Savings Deposit%'
+       ),
+       running_entries AS (
+         SELECT date,
+                initcap(item) AS item,
+                reference_no,
+                debit,
+                credit,
+                account_no,
+                sort_key,
+                SUM(COALESCE(credit, 0) - COALESCE(debit, 0))
+                  OVER (ORDER BY date ASC NULLS FIRST, sort_key ASC ROWS UNBOUNDED PRECEDING) AS running_balance
+         FROM savings_entries
+       ),
+       latest_entries AS (
+         SELECT *
+         FROM running_entries
+         ORDER BY date DESC NULLS LAST, sort_key DESC
+         LIMIT 10
+       )
+       SELECT *,
+              (SELECT COALESCE(running_balance, 0)
+               FROM running_entries
+               ORDER BY date DESC NULLS LAST, sort_key DESC
+               LIMIT 1) AS total_balance
+       FROM latest_entries
+       ORDER BY date DESC NULLS LAST, sort_key DESC`,
       [memberNo]
     );
 
     const data = result.rows.map((row, index) => ({
-      inputDate: row.date,
-      narration: row.acc_no ? `${row.item || 'Savings Transaction'} (${row.acc_no})` : (row.item || 'Savings Transaction'),
+      inputDate: formatNairobiDate(row.date) || row.date,
+      narration: row.item || 'Savings Transaction',
       refNo: row.reference_no || `SAV${index + 1}`,
       savings: Number(row.credit || 0) - Number(row.debit || 0),
       runningAmt: Number(row.running_balance || 0),
     }));
 
-    return res.json({ success: true, data });
+    const totalSavings = Number(result.rows[0]?.total_balance || 0);
+    return res.json({ success: true, data, totalSavings, total: totalSavings, balance: totalSavings });
   } catch (error) {
     console.error('Failed to fetch savings statement:', error.message);
     return res.status(500).json({ message: 'Unable to fetch savings data right now.' });
@@ -2086,12 +2205,14 @@ app.post('/api/v1/loan/apply', async (req, res) => {
 // LOCAL ENDPOINT: M-PESA STK PUSH (INITIATE PAYMENT)
 // ============================================
 const MPESA_MIN_AMOUNT = 10;
+const LOAN_OUTSTANDING_TOLERANCE = 1;
 
-app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
+app.post('/api/v1/mpesa/stkpush', requireVerifiedProxyAuth, async (req, res) => {
   const { memberNo, purpose, accountReference, amount, phoneNumber } = req.body || {};
 
   const normalizedMemberNo = normalizeAuthMemberNo(memberNo);
-  const normalizedPurpose = String(purpose || '').trim().toLowerCase();
+  const rawPurpose = String(purpose || '').trim().toLowerCase();
+  const normalizedPurpose = rawPurpose === 'savings' ? 'withdrawable_deposit' : rawPurpose;
   const normalizedAccountRef = String(accountReference || '').trim();
   const numericAmount = Number(amount);
 
@@ -2101,8 +2222,8 @@ app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
     return res.status(403).json({ message: 'You can only make payments on your own account.' });
   }
 
-  if (!['savings', 'loan_repayment'].includes(normalizedPurpose)) {
-    return res.status(400).json({ message: 'Purpose must be "savings" or "loan_repayment".' });
+  if (!['withdrawable_deposit', 'member_deposit', 'loan_repayment'].includes(normalizedPurpose)) {
+    return res.status(400).json({ message: 'Purpose must be "withdrawable_deposit", "member_deposit", or "loan_repayment".' });
   }
 
   if (!normalizedAccountRef) {
@@ -2121,7 +2242,7 @@ app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
   try {
     let transactionDesc;
 
-    if (normalizedPurpose === 'savings') {
+    if (normalizedPurpose === 'withdrawable_deposit') {
       const accountResult = await dbPool.query(
         `SELECT r.acc_no
          FROM pb_wdeposit_register r
@@ -2131,11 +2252,26 @@ app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
       if (accountResult.rows.length === 0) {
         return res.status(404).json({ message: 'Savings account not found for this member.' });
       }
-      transactionDesc = 'Metro Sacco Deposit';
+      transactionDesc = 'Withdrawable Deposit';
+    } else if (normalizedPurpose === 'member_deposit') {
+      if (normalizedAccountRef !== req.auth.memberNo) {
+        return res.status(403).json({ message: 'Member savings deposits must use your member number as the reference.' });
+      }
+      const memberResult = await dbPool.query(
+        `SELECT acc_no
+         FROM pb_share_register
+         WHERE upper(trim(acc_no)) = $1
+         LIMIT 1`,
+        [req.auth.memberNo]
+      );
+      if (memberResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Member account not found.' });
+      }
+      transactionDesc = 'Member Deposit';
     } else {
       const loanResult = await dbPool.query(
         `SELECT loan_no, mem_no,
-                COALESCE((SELECT SUM(COALESCE(d.balance, 0) - COALESCE(d.credit_bal, 0))
+                COALESCE((SELECT ROUND(SUM(COALESCE(d.balance, 0) - COALESCE(d.credit_bal, 0))::numeric, 2)
                           FROM ac_debtors d WHERE d.account_no = pb_saccoloan.mem_no AND d.invoice_no = pb_saccoloan.loan_no), 0) AS outstanding
          FROM pb_saccoloan
          WHERE loan_no = $1 AND mem_no = $2`,
@@ -2144,7 +2280,7 @@ app.post('/api/v1/mpesa/stkpush', requireAuth, async (req, res) => {
       if (loanResult.rows.length === 0) {
         return res.status(404).json({ message: 'Loan not found for this member.' });
       }
-      if (Number(loanResult.rows[0].outstanding) <= 0) {
+      if (Number(loanResult.rows[0].outstanding) < LOAN_OUTSTANDING_TOLERANCE) {
         return res.status(400).json({ message: 'This loan has no outstanding balance.' });
       }
       transactionDesc = `Loan ${normalizedAccountRef}`;
@@ -2206,7 +2342,8 @@ function extractMpesaCallbackMetadata(items) {
 app.post('/api/v1/mpesa/callback', async (req, res) => {
   const ackResponse = { ResultCode: 0, ResultDesc: 'Accepted' };
 
-  if (process.env.MPESA_CALLBACK_SECRET && req.query.key !== process.env.MPESA_CALLBACK_SECRET) {
+  const shouldEnforceCallbackSecret = process.env.MPESA_ENV === 'production' && process.env.MPESA_CALLBACK_SECRET;
+  if (shouldEnforceCallbackSecret && req.query.key !== process.env.MPESA_CALLBACK_SECRET) {
     console.warn('?? [MPESA CALLBACK] Rejected callback with missing/invalid key');
     return res.status(200).json(ackResponse);
   }
@@ -2245,6 +2382,24 @@ app.post('/api/v1/mpesa/callback', async (req, res) => {
 
         if (txnResult.rows.length > 0) {
           const txn = txnResult.rows[0];
+          const expectedAmount = Number(txn.amount);
+          const hasPaidAmount = Number.isFinite(paidAmount) && paidAmount > 0;
+          if (hasPaidAmount && Math.round(paidAmount) !== Math.round(expectedAmount)) {
+            await client.query(
+              `UPDATE pb_mpesa_transactions
+               SET status = 'failed',
+                   result_desc = $2,
+                   ledger_posted = false,
+                   updated_at = now()
+               WHERE id = $1`,
+              [
+                txn.id,
+                `M-Pesa paid amount mismatch. Expected KES ${expectedAmount}, received KES ${paidAmount}.`,
+              ]
+            );
+            await client.query('COMMIT');
+            return res.status(200).json(ackResponse);
+          }
           const postedAmount = paidAmount || Number(txn.amount);
 
           // 20-25-010 = "M-Pesa Pay Bill(C2B)" in pb_activity, the Sacco's existing
@@ -2253,11 +2408,17 @@ app.post('/api/v1/mpesa/callback', async (req, res) => {
           // ac_wdeposit_payable and kept consistent on ac_debtors for reporting.
           const MPESA_ACTIVITY_CODE = '20-25-010';
 
-          if (txn.purpose === 'savings') {
+          if (txn.purpose === 'withdrawable_deposit' || txn.purpose === 'savings') {
             await client.query(
               `INSERT INTO ac_wdeposit_payable (activity_code, account_no, date, item, reference_no, receipt_no, credit, debit)
                VALUES ($1, $2, now(), 'M-Pesa Deposit', $3, $4, $5, 0)`,
               [MPESA_ACTIVITY_CODE, txn.account_reference, CheckoutRequestID, mpesaReceiptNo, postedAmount]
+            );
+          } else if (txn.purpose === 'member_deposit') {
+            await client.query(
+              `INSERT INTO ac_wdeposit_payable (activity_code, account_no, date, item, reference_no, receipt_no, credit, debit)
+               VALUES ($1, $2, now(), 'M-Pesa Savings Deposit', $3, $4, $5, 0)`,
+              [MPESA_ACTIVITY_CODE, txn.member_no, CheckoutRequestID, mpesaReceiptNo, postedAmount]
             );
           } else {
             await client.query(
@@ -2273,12 +2434,15 @@ app.post('/api/v1/mpesa/callback', async (req, res) => {
           );
         } else {
           // Already updated by a prior callback delivery for this CheckoutRequestID — update audit fields only.
-          await client.query(
+          const auditResult = await client.query(
             `UPDATE pb_mpesa_transactions
              SET callback_raw = $2, updated_at = now()
              WHERE checkout_request_id = $1`,
             [CheckoutRequestID, JSON.stringify(req.body)]
           );
+          if (auditResult.rowCount === 0) {
+            console.warn(`?? [MPESA CALLBACK] No transaction found for checkout ${CheckoutRequestID}`);
+          }
         }
 
         await client.query('COMMIT');
@@ -2296,12 +2460,16 @@ app.post('/api/v1/mpesa/callback', async (req, res) => {
       }
     } else {
       const status = Number(ResultCode) === 1032 ? 'cancelled' : 'failed';
-      await dbPool.query(
+      const updateResult = await dbPool.query(
         `UPDATE pb_mpesa_transactions
          SET status = $2, result_code = $3, result_desc = $4, callback_raw = $5, updated_at = now()
-         WHERE checkout_request_id = $1`,
+         WHERE checkout_request_id = $1
+           AND ledger_posted = false`,
         [CheckoutRequestID, status, ResultCode, ResultDesc, JSON.stringify(req.body)]
       );
+      if (updateResult.rowCount === 0) {
+        console.warn(`?? [MPESA CALLBACK] No pending transaction updated for checkout ${CheckoutRequestID} (${status})`);
+      }
     }
 
     return res.status(200).json(ackResponse);
@@ -2314,7 +2482,7 @@ app.post('/api/v1/mpesa/callback', async (req, res) => {
 // ============================================
 // LOCAL ENDPOINT: M-PESA PAYMENT STATUS
 // ============================================
-app.get('/api/v1/mpesa/status/:checkoutRequestId', requireAuth, async (req, res) => {
+app.get('/api/v1/mpesa/status/:checkoutRequestId', requireVerifiedProxyAuth, async (req, res) => {
   const { checkoutRequestId } = req.params;
 
   try {
@@ -2322,8 +2490,9 @@ app.get('/api/v1/mpesa/status/:checkoutRequestId', requireAuth, async (req, res)
       `SELECT status, result_desc, mpesa_receipt_no, amount, purpose, account_reference,
               transaction_date, member_no, receipt_emailed
        FROM pb_mpesa_transactions
-       WHERE checkout_request_id = $1`,
-      [checkoutRequestId]
+       WHERE checkout_request_id = $1
+         AND member_no = $2`,
+      [checkoutRequestId, req.auth.memberNo]
     );
 
     if (result.rows.length === 0) {
@@ -2582,15 +2751,18 @@ app.get('/api/v1/instant/:memberNo', async (req, res) => {
               cdate AS "startDate",
               edate AS "endDate",
               period,
+              interest,
               amount,
+              repayment,
+              total,
               COALESCE(NULLIF(wstation, ''), 'N/A') AS "payMode",
-              SUM(balance - credit_bal) AS "outStanding"
+              ROUND(SUM(COALESCE(balance, 0) - COALESCE(credit_bal, 0))::numeric, 2) AS "outStanding"
        FROM ac_debtors, pb_saccoloan
        WHERE mem_no = account_no
          AND invoice_no = loan_no
          AND account_no = $1
-       GROUP BY loan_no, lpurpose, amount, cdate, edate, period, wstation
-       HAVING SUM(balance - credit_bal) <> 0
+        GROUP BY loan_no, lpurpose, amount, cdate, edate, period, interest, repayment, total, wstation
+       HAVING ABS(ROUND(SUM(COALESCE(balance, 0) - COALESCE(credit_bal, 0))::numeric, 2)) >= ${LOAN_OUTSTANDING_TOLERANCE}
        ORDER BY cdate`,
       [memberNo]
     );
@@ -2635,10 +2807,7 @@ app.get('/api/v1/loan-applications/:memberNo', async (req, res) => {
               total,
               repayment,
               interest,
-              CASE
-                WHEN interest > 100 THEN 4.5
-                ELSE COALESCE(interest, 4.5)
-              END AS "interestRate",
+              interest AS "interestRate",
               COALESCE(NULLIF(wstation, ''), 'N/A') AS "payMode",
               COALESCE(total, amount, 0) AS "outStanding",
               true AS "isPending",
@@ -2688,7 +2857,7 @@ app.post('/api/v1/loan-statement-direct', async (req, res) => {
     const organisationName = headerResult.rows[0]?.header_name || 'METROPOLITAN HOSPITAL SACCO LTD';
     
     let loanResult = await dbPool.query(
-      `SELECT lpurpose as purpose, amount, cdate as start_date, edate as end_date, period, interest, wstation
+      `SELECT lpurpose as purpose, amount, cdate as start_date, edate as end_date, period, interest, wstation, repayment, total
        FROM pb_saccoloan WHERE loan_no = $1`,
       [loanNo]
     );
@@ -2723,13 +2892,30 @@ app.post('/api/v1/loan-statement-direct', async (req, res) => {
     // posting after it (overdue/extended loans), so never cut the transaction
     // window off earlier than today.
     const normalizedEndDate = requestedEndDate && requestedEndDate > today ? requestedEndDate : today;
-    const displayPrincipal = parseFloat(principalAmount ?? loan.amount ?? 0) || 0;
-    const displayOutstanding = parseFloat(outstandingBalance ?? loan.total ?? loan.amount ?? 0) || 0;
-    const displayPurpose = requestedPurpose || loan.purpose || 'N/A';
-    const displayPeriod = requestedPeriod ?? loan.period ?? 0;
+    let currentOutstanding = parseFloat(outstandingBalance ?? loan.total ?? loan.amount ?? 0) || 0;
+    if (!isPendingApplication) {
+      const outstandingResult = await dbPool.query(
+        `SELECT COALESCE(SUM(COALESCE(balance, 0) - COALESCE(credit_bal, 0)), 0) AS outstanding
+         FROM ac_debtors
+         WHERE account_no = $1 AND invoice_no = $2`,
+        [memberNo, loanNo]
+      );
+      currentOutstanding = parseFloat(outstandingResult.rows[0]?.outstanding || 0);
+    }
+    currentOutstanding = Math.round(currentOutstanding * 100) / 100;
+    if (Math.abs(currentOutstanding) < LOAN_OUTSTANDING_TOLERANCE) {
+      currentOutstanding = 0;
+    }
+
+    const displayPrincipal = parseFloat(loan.amount ?? principalAmount ?? 0) || 0;
+    const displayOutstanding = currentOutstanding;
+    const displayPurpose = loan.purpose || requestedPurpose || 'N/A';
+    const displayPeriod = loan.period ?? requestedPeriod ?? 0;
     const displayStatus = requestedStatus || (requestedIsPending || isPendingApplication ? 'Pending Approval' : 'Active');
-    const displayPayMode = requestedPayMode || loan.wstation || 'N/A';
-    const displayInterestRate = requestedInterestRate ?? 4.5;
+    const displayPayMode = loan.wstation || requestedPayMode || 'N/A';
+    const displayInterestRate = loan.interest ?? requestedInterestRate ?? 0;
+    const displayMonthlyRepayment = Number(loan.repayment || 0);
+    const displayTotalRepayable = Number(loan.total || 0);
     
     const memberResult = await dbPool.query(
       `SELECT holders_name, id_no, tel1, email_add, acc_no 
@@ -2785,6 +2971,12 @@ app.post('/api/v1/loan-statement-direct', async (req, res) => {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+    const formatInterestDisplay = (value) => {
+      if (value === undefined || value === null || value === '') return 'N/A';
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      return numeric > 100 ? `KES ${formatMoney(numeric)}` : `${numeric.toFixed(2)}% / month`;
+    };
 
     const drawSectionTitle = (title) => {
       doc.moveDown(0.2);
@@ -2915,20 +3107,28 @@ app.post('/api/v1/loan-statement-direct', async (req, res) => {
     const loanInfoRows = [
       ['Loan Number', loanNo, 'Purpose', displayPurpose],
       ['Principal', `KES ${formatMoney(displayPrincipal)}`, 'Outstanding', `KES ${formatMoney(displayOutstanding)}`],
-      ['Interest Rate', `${Number(displayInterestRate).toFixed(2)}% / month`, 'Period', `${displayPeriod || 0} months`],
+      ['Monthly Repayment', displayMonthlyRepayment > 0 ? `KES ${formatMoney(displayMonthlyRepayment)}` : 'N/A', 'Total Repayable', `KES ${formatMoney(displayTotalRepayable)}`],
+      ['Interest Rate', formatInterestDisplay(displayInterestRate), 'Period', `${displayPeriod || 0} months`],
       ['Pay Mode', displayPayMode, '', ''],
       ['Start Date', loan.start_date ? new Date(loan.start_date).toLocaleDateString('en-GB') : 'N/A', 'End Date', loan.end_date ? new Date(loan.end_date).toLocaleDateString('en-GB') : 'N/A'],
       ['Status', displayStatus, '', ''],
     ];
-    if (isPendingApplication) {
-      loanInfoRows.push([
-        'Monthly Repayment',
-        `KES ${formatMoney(loan.repayment)}`,
-        'Total Repayable',
-        `KES ${formatMoney(loan.total)}`,
-      ]);
-    }
     drawInfoTable('LOAN INFORMATION', loanInfoRows);
+
+    if (displayTotalRepayable > 0 && displayTotalRepayable < Math.max(displayPrincipal, displayOutstanding)) {
+      doc
+        .font('Helvetica')
+        .fontSize(8)
+        .fillColor('#92400e')
+        .text(
+          'Data note: Total Repayable is shown exactly as stored in the Sacco database and is lower than the principal/outstanding figure.',
+          pageLeft,
+          doc.y,
+          { width: pageWidth, align: 'left' }
+        );
+      doc.fillColor('#000000');
+      doc.moveDown(0.5);
+    }
 
     if (isPendingApplication) {
       drawSectionTitle('APPLICATION STATUS');

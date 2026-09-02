@@ -4,6 +4,8 @@ import jsPDF from 'jspdf';
 import { formatPayMode } from '../utils/formatters';
 import MpesaPaymentModal from './MpesaPaymentModal';
 
+const LOAN_OUTSTANDING_TOLERANCE = 1;
+
 function LoanStatement() {
   const [memberData, setMemberData] = useState(null);
   const [loanData, setLoanData] = useState([]);
@@ -17,6 +19,7 @@ function LoanStatement() {
   const [statementLoading, setStatementLoading] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [mpesaLoan, setMpesaLoan] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   const brandColor = '#00a3b5';
 
@@ -90,15 +93,20 @@ function LoanStatement() {
       loan?.balance ??
       0
     );
+    const cleanOutstandingValue = (loan) => {
+      const outstanding = getOutstandingValue(loan);
+      return Math.abs(outstanding) < LOAN_OUTSTANDING_TOLERANCE ? 0 : outstanding;
+    };
 
     // Log each loan's details for debugging
     loans.forEach((loan, idx) => {
-      console.log(`Loan ${idx + 1}: ${loan.loanNo} | Outstanding: ${getOutstandingValue(loan)} | Amount: ${loan.amount}`);
+      console.log(`Loan ${idx + 1}: ${loan.loanNo} | Outstanding: ${cleanOutstandingValue(loan)} | Amount: ${loan.amount}`);
     });
     
-    // Show every loan with a non-zero balance, including credit/overpaid balances.
+    // Treat sub-shilling residues as rounding noise so cleared loans do not
+    // appear as open credit balances.
     const activeLoans = loans.filter(loan => {
-      const outstanding = getOutstandingValue(loan);
+      const outstanding = cleanOutstandingValue(loan);
       const isPending = Boolean(loan.isPending);
       const hasOpenBalance = isPending || outstanding !== 0;
       
@@ -126,10 +134,12 @@ function LoanStatement() {
       rawEndDate: item.endDate || null,
       period: item.period !== null && item.period !== undefined ? item.period : 'N/A',
       originalAmount: parseFloat(item.amount) || 0,
-      balance: getOutstandingValue(item),
+      balance: cleanOutstandingValue(item),
+      monthlyRepayment: Number(item.repayment || item.monthlyRepayment || item.monthly_repayment || 0),
+      totalRepayable: Number(item.total ?? item.totalRepayable ?? item.total_repayable ?? 0),
       payMode: item.payMode || item.wstation || 'N/A',
-      interestRate: item.interestRate || item.interest_rate || 4.5,
-      status: item.status || (item.isPending ? 'Pending Approval' : getOutstandingValue(item) < 0 ? 'Credit Balance' : 'Active'),
+      interestRate: item.interest ?? item.interestRate ?? item.interest_rate ?? 0,
+      status: item.status || (item.isPending ? 'Pending Approval' : cleanOutstandingValue(item) < 0 ? 'Credit Balance' : 'Active'),
       isPending: Boolean(item.isPending),
     }));
     
@@ -321,14 +331,16 @@ function LoanStatement() {
 
       const loanColumns = [
         { label: 'Loan No', key: 'loanNo', width: 28, align: 'left' },
-        { label: 'Purpose', key: 'purpose', width: 42, align: 'left' },
+        { label: 'Purpose', key: 'purpose', width: 38, align: 'left' },
         { label: 'Start Date', key: 'sdate', width: 22, align: 'left' },
         { label: 'End Date', key: 'edate', width: 22, align: 'left' },
         { label: 'Period', key: 'period', width: 16, align: 'center' },
-        { label: 'Pay Mode', key: 'payMode', width: 30, align: 'left' },
-        { label: 'Principal (KES)', key: 'principal', width: 35, align: 'right' },
-        { label: 'Outstanding (KES)', key: 'outstanding', width: 38, align: 'right' },
-        { label: 'Status', key: 'status', width: tableWidth - 233, align: 'left' },
+        { label: 'Interest', key: 'interest', width: 24, align: 'right' },
+        { label: 'Pay Mode', key: 'payMode', width: 26, align: 'left' },
+        { label: 'Principal (KES)', key: 'principal', width: 32, align: 'right' },
+        { label: 'Monthly (KES)', key: 'monthly', width: 31, align: 'right' },
+        { label: 'Outstanding (KES)', key: 'outstanding', width: 34, align: 'right' },
+        { label: 'Status', key: 'status', width: tableWidth - 273, align: 'left' },
       ];
 
       const drawLoanTableHeader = () => {
@@ -382,7 +394,7 @@ function LoanStatement() {
 
       drawInfoTable('LOAN SUMMARY', [
         ['Open Balances', loanData.length, 'Total Principal', `KES ${formatCurrency(totalLoanAmount)}`],
-        ['Net Outstanding', `KES ${formatCurrency(totalOutstanding)}`, 'Report Status', 'Non-zero loan balances'],
+        ['Net Outstanding', `KES ${formatCurrency(totalOutstanding)}`, 'Report Status', 'Outstanding balances >= KES 1'],
       ]);
 
       pdf.setFont('helvetica', 'bold');
@@ -398,8 +410,10 @@ function LoanStatement() {
           sdate: loan.sdate,
           edate: loan.edate,
           period: loan.period,
+          interest: formatInterest(loan.interestRate),
           payMode: formatPayMode(loan.payMode),
           principal: formatCurrency(loan.originalAmount),
+          monthly: loan.monthlyRepayment > 0 ? formatCurrency(loan.monthlyRepayment) : 'N/A',
           outstanding: formatCurrency(loan.balance),
           status: loan.status,
         });
@@ -411,8 +425,10 @@ function LoanStatement() {
         sdate: '',
         edate: '',
         period: '',
+        interest: '',
         payMode: '',
         principal: formatCurrency(totalLoanAmount),
+        monthly: '',
         outstanding: formatCurrency(totalOutstanding),
         status: '',
       }, true);
@@ -420,7 +436,7 @@ function LoanStatement() {
       y += 8;
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(7.5);
-      drawText('Note: This statement only shows loans that still have an outstanding balance. Fully repaid loans are kept out of this summary.', margin, y);
+      drawText('Note: This statement shows loans with ledger outstanding balances of KES 1 or more. Sub-shilling rounding residues are treated as settled.', margin, y);
 
       pdf.save(`loan-summary-${memberData?.accNo || 'member'}-${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
@@ -432,6 +448,13 @@ function LoanStatement() {
   const formatCurrency = (value) => {
     if (value === undefined || value === null) return 'N/A';
     return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const formatInterest = (value) => {
+    if (value === undefined || value === null || value === '') return 'N/A';
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return String(value);
+    return numeric > 100 ? `KES ${formatCurrency(numeric)}` : `${numeric.toFixed(2)}%`;
   };
 
   // Main data fetch
@@ -463,13 +486,13 @@ function LoanStatement() {
         }
         
         if (!token) {
-          setError('Authentication required. Please login again.');
+          setError('Your session needs a refresh. Please log in again to view loans.');
           setLoading(false);
           return;
         }
         
         if (!memberNumber) {
-          setError('Member number not found. Please login again.');
+          setError('We could not find your member number. Please log in again.');
           setLoading(false);
           return;
         }
@@ -543,19 +566,19 @@ function LoanStatement() {
               const pendingData = await pendingResponse.json();
               processLoanData(pendingData);
             } else {
-              setError('Unable to fetch loan data. Please try again later.');
+              setError('We could not refresh your loan balances right now. Please try again.');
               setLoanData([]);
             }
           } catch (pendingErr) {
             console.error('Failed to fetch pending loans:', pendingErr);
-            setError('Unable to fetch loan data. Please try again later.');
+            setError('We could not refresh your loan balances right now. Please try again.');
             setLoanData([]);
           }
         }
         
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError('Network error. Unable to fetch loan data.');
+        setError('We could not reach the server right now. Please check your connection and try again.');
       } finally {
         setLoading(false);
       }
@@ -568,6 +591,18 @@ function LoanStatement() {
         URL.revokeObjectURL(pdfUrl);
       }
     };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const refreshAfterMpesa = (event) => {
+      const purpose = event?.detail?.purpose;
+      if (purpose && purpose !== 'loan_repayment') return;
+      setLoading(true);
+      setRefreshKey((key) => key + 1);
+    };
+
+    window.addEventListener('mpesa:payment-success', refreshAfterMpesa);
+    return () => window.removeEventListener('mpesa:payment-success', refreshAfterMpesa);
   }, []);
 
   // Calculate totals for open loans only
@@ -654,8 +689,10 @@ function LoanStatement() {
                   <th>Start Date</th>
                   <th>End Date</th>
                   <th>Period (Months)</th>
+                  <th>Interest</th>
                   <th>Pay Mode</th>
                   <th>Principal (KES)</th>
+                  <th>Monthly Repayment (KES)</th>
                   <th>Outstanding Balance (KES)</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -669,8 +706,10 @@ function LoanStatement() {
                     <td data-label="Start Date">{loan.sdate}</td>
                     <td data-label="End Date">{loan.edate}</td>
                     <td data-label="Period">{loan.period}</td>
+                    <td data-label="Interest" className="amount"><strong>{formatInterest(loan.interestRate)}</strong></td>
                     <td data-label="Pay Mode"><strong>{formatPayMode(loan.payMode)}</strong></td>
                     <td data-label="Principal" className="amount"><strong>{formatCurrency(loan.originalAmount)}</strong></td>
+                    <td data-label="Monthly Repayment" className="amount"><strong>{loan.monthlyRepayment > 0 ? formatCurrency(loan.monthlyRepayment) : 'N/A'}</strong></td>
                     <td data-label="Outstanding Balance" className="amount" style={{ color: '#e53e3e', fontWeight: 'bold' }}>
                       {formatCurrency(loan.balance)}
                     </td>
@@ -701,7 +740,7 @@ function LoanStatement() {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan="10" style={{ textAlign: 'center', padding: '2rem' }}>
+                    <td colSpan="12" style={{ textAlign: 'center', padding: '2rem' }}>
                       <div className="statement-empty-state">
                         <strong>No open loan balances right now</strong>
                         <span>{error || 'You do not have any loan with a non-zero balance at the moment.'}</span>
@@ -713,9 +752,11 @@ function LoanStatement() {
               {loanData.length > 0 && (
                 <tfoot>
                   <tr className="total-row">
-                    <td colSpan="6"><strong>TOTAL OPEN BALANCES</strong></td>
+                    <td colSpan="7"><strong>TOTAL OPEN BALANCES</strong></td>
                     <td className="amount"><strong>{formatCurrency(totalLoanAmount)}</strong></td>
+                    <td></td>
                     <td className="amount"><strong>{formatCurrency(totalOutstanding)}</strong></td>
+                    <td></td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -725,8 +766,8 @@ function LoanStatement() {
         </div>
 
         <div className="report-footer">
-          <p><strong>Note:</strong> This statement shows loans with non-zero balances, including credit/overpaid balances.</p>
-          <p>Fully settled loans with a zero balance are kept out of this summary.</p>
+          <p><strong>Note:</strong> This statement shows loans with ledger outstanding balances of KES 1 or more.</p>
+          <p>Sub-shilling rounding residues are treated as settled and kept out of this summary.</p>
           <p>For any queries, please contact the Sacco office.</p>
         </div>
       </div>
@@ -782,9 +823,8 @@ function LoanStatement() {
         memberNo={localStorage.getItem('memberNumber')}
         purpose="loan_repayment"
         accountReference={mpesaLoan?.loanNo}
-        defaultAmount={mpesaLoan?.balance}
+        defaultAmount={mpesaLoan?.monthlyRepayment > 0 ? mpesaLoan.monthlyRepayment : mpesaLoan?.balance}
         defaultPhone={memberData?.tel1}
-        onSuccess={() => window.location.reload()}
       />
 
       <style>{`

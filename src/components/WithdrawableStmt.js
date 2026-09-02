@@ -16,6 +16,7 @@ function WithdrawableStmt() {
   const [pdfBlob, setPdfBlob] = useState(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [mpesaAccount, setMpesaAccount] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   const brandColor = '#00a3b5';
 
@@ -205,13 +206,13 @@ function WithdrawableStmt() {
         }
         
         if (!token) {
-          setError('Authentication required. Please login again.');
+          setError('Your session needs a refresh. Please log in again to view withdrawable deposits.');
           setLoading(false);
           return;
         }
         
         if (!memberNumber) {
-          setError('Member number not found. Please login again.');
+          setError('We could not find your member number. Please log in again.');
           setLoading(false);
           return;
         }
@@ -253,18 +254,18 @@ function WithdrawableStmt() {
           } else if (data && data.data) {
             processWithdrawableData([data.data]);
           } else {
-            setError('No withdrawable records found');
+            setError('No withdrawable records were found for this member.');
             setWithdrawableData([]);
           }
         } else {
           console.error('Failed to fetch withdrawable:', response.status);
-          setError('Unable to fetch withdrawable data.');
+          setError('We could not refresh your withdrawable deposits right now. Please try again.');
           setWithdrawableData([]);
         }
         
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError('Network error. Unable to fetch withdrawable data.');
+        setError('We could not reach the server right now. Please check your connection and try again.');
       } finally {
         setLoading(false);
       }
@@ -277,6 +278,19 @@ function WithdrawableStmt() {
         URL.revokeObjectURL(pdfUrl);
       }
     };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const refreshAfterMpesa = (event) => {
+      const purpose = event?.detail?.purpose;
+      if (purpose && purpose !== 'withdrawable_deposit') return;
+      localStorage.removeItem('withdrawableData');
+      setLoading(true);
+      setRefreshKey((key) => key + 1);
+    };
+
+    window.addEventListener('mpesa:payment-success', refreshAfterMpesa);
+    return () => window.removeEventListener('mpesa:payment-success', refreshAfterMpesa);
   }, []);
 
   const totalOutstanding = withdrawableData.reduce((sum, item) => sum + (item.outStanding || 0), 0);
@@ -453,10 +467,9 @@ function WithdrawableStmt() {
         isOpen={!!mpesaAccount}
         onClose={() => setMpesaAccount(null)}
         memberNo={localStorage.getItem('memberNumber')}
-        purpose="savings"
+        purpose="withdrawable_deposit"
         accountReference={mpesaAccount?.accNo}
         defaultPhone={memberData?.tel1 || memberData?.phone}
-        onSuccess={() => window.location.reload()}
       />
 
       <style>{`

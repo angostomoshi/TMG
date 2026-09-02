@@ -46,6 +46,7 @@ const clearSession = () => {
     'accountNo',
     'memberNumber',
     'authToken',
+    'proxyAuthToken',
     'holdersName',
     'loginTimestamp',
     'savingsTransactions',

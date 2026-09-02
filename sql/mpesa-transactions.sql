@@ -3,8 +3,8 @@ CREATE TABLE IF NOT EXISTS pb_mpesa_transactions (
   merchant_request_id   VARCHAR(100),
   checkout_request_id   VARCHAR(100) UNIQUE NOT NULL,
   member_no             VARCHAR(50) NOT NULL,
-  purpose               VARCHAR(20) NOT NULL,        -- 'savings' | 'loan_repayment'
-  account_reference     VARCHAR(50) NOT NULL,        -- acc_no for savings, loan_no for loan
+  purpose               VARCHAR(20) NOT NULL,        -- withdrawable_deposit|member_deposit|loan_repayment
+  account_reference     VARCHAR(50) NOT NULL,        -- withdrawable acc_no, member_no, or loan_no
   phone_no              VARCHAR(15) NOT NULL,        -- 2547XXXXXXXX normalized
   amount                NUMERIC(14,2) NOT NULL,
   status                VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending|success|failed|cancelled
