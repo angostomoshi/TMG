@@ -4,6 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import logo from '../log.png';
 import Alert from './Alert';
 
+const CONTACT = {
+  phone: '+254 114470459',
+  phoneHref: 'tel:+254114470459',
+  email: 'info@tmgfoundation.ke',
+  emailHref: 'mailto:info@tmgfoundation.ke'
+};
+
 const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
   const navigate = useNavigate();
   const [memberNumber, setMemberNumber] = useState('');
@@ -12,174 +19,68 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Use proxy server (relative URL) - this will go to http://localhost:3023 due to package.json proxy
-  const API_BASE = '/api/v1';
+  // --- UPDATED COLORS BASED ON TMG LOGO ---
+  const colors = {
+    primary: '#1B3A6B',
+    primaryDark: '#142C52',
+    accent: '#E31E24',
+    accentHover: '#C4181D',
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
+
     if (!memberNumber.trim() || !password.trim()) {
       setError('Please enter your member number and password to continue.');
       return;
     }
-    
+
     setLoading(true);
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('proxyAuthToken');
-    
-    try {
-      // Call through proxy server (NOT directly to live server)
-      const authResponse = await fetch(`${API_BASE}/auth/authenticate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
+
+    // --- DEMO MODE: Simulate a successful login without a backend ---
+    setTimeout(() => {
+      const demoName = `Member ${memberNumber.trim()}`;
+      const demoAccount = memberNumber.trim();
+      const demoInitials = demoAccount.substring(0, 2).toUpperCase();
+
+      localStorage.setItem('memberNumber', demoAccount);
+      localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('loginTimestamp', String(Date.now()));
+      localStorage.setItem('authToken', 'demo-token-' + Date.now());
+      localStorage.setItem('holdersName', demoName);
+      localStorage.setItem('userName', demoName);
+      localStorage.setItem('accountNo', demoAccount);
+      localStorage.setItem('userInitials', demoInitials);
+      localStorage.setItem('memberId', 'DEMO-' + demoAccount);
+
+      const demoMemberData = {
+        data: {
+          holders_name: demoName,
+          acc_no: demoAccount,
+          id_no: 'DEMO-' + demoAccount,
         },
-        credentials: 'include',
-        body: JSON.stringify({
-          memberNo: memberNumber.trim(),
-          password: password.trim()
-        })
-      });
-      
-      const authData = await authResponse.json();
-      
-      if (authResponse.ok) {
-        // Store authentication data
-        localStorage.setItem('memberNumber', memberNumber.trim());
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('loginTimestamp', String(Date.now()));
-        
-        if (authData.token) {
-          localStorage.setItem('authToken', authData.token);
-        }
-        if (authData.proxyToken) {
-          localStorage.setItem('proxyAuthToken', authData.proxyToken);
-        }
-        
-        // Fetch member details through proxy
-        try {
-          const memberResponse = await fetch(`${API_BASE}/member/${memberNumber.trim()}`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              ...(authData.token && { 'Authorization': `Bearer ${authData.token}` })
-            }
-          });
-          
-          if (memberResponse.ok) {
-            const memberData = await memberResponse.json();
-            
-            // Store member details
-            localStorage.setItem('memberData', JSON.stringify(memberData));
-            
-            // Extract name from response
-            let userName = '';
-            if (memberData.data && memberData.data.holders_name) {
-              userName = memberData.data.holders_name;
-            } else if (memberData.holders_name) {
-              userName = memberData.holders_name;
-            } else if (memberData.holdersName) {
-              userName = memberData.holdersName;
-            }
-            
-            if (userName) {
-              localStorage.setItem('holdersName', userName);
-              localStorage.setItem('userName', userName);
-            }
-            
-            // Extract account number
-            let accountNo = '';
-            if (memberData.data && memberData.data.acc_no) {
-              accountNo = memberData.data.acc_no;
-            } else if (memberData.acc_no) {
-              accountNo = memberData.acc_no;
-            } else if (memberData.accNo) {
-              accountNo = memberData.accNo;
-            }
-            
-            if (accountNo) {
-              localStorage.setItem('accountNo', accountNo);
-            } else {
-              localStorage.setItem('accountNo', memberNumber.trim());
-            }
-            
-            // Create and store initials
-            if (userName) {
-              const names = userName.split(' ');
-              const initials = names.map(n => n[0]).join('').toUpperCase().substring(0, 2);
-              localStorage.setItem('userInitials', initials);
-            } else {
-              localStorage.setItem('userInitials', memberNumber.trim().substring(0, 2).toUpperCase());
-            }
-            
-            // Store member ID
-            let memberId = '';
-            if (memberData.data && memberData.data.id_no) {
-              memberId = memberData.data.id_no;
-            } else if (memberData.id_no) {
-              memberId = memberData.id_no;
-            } else if (memberData.id) {
-              memberId = memberData.id;
-            }
-            
-            if (memberId) {
-              localStorage.setItem('memberId', String(memberId));
-            }
-            
-            if (onLogin) {
-              onLogin(memberData);
-            } else {
-              navigate('/');
-            }
-          } else {
-            // If member details fetch fails, still allow login with basic info
-            console.warn('Could not fetch member details, using basic info');
-            localStorage.setItem('holdersName', `Member ${memberNumber.trim()}`);
-            localStorage.setItem('userName', `Member ${memberNumber.trim()}`);
-            localStorage.setItem('accountNo', memberNumber.trim());
-            localStorage.setItem('userInitials', memberNumber.trim().substring(0, 2).toUpperCase());
-            
-            if (onLogin) {
-              onLogin(authData);
-            } else {
-              navigate('/');
-            }
-          }
-        } catch (memberError) {
-          console.error('Error fetching member details:', memberError);
-          // Still allow login even if member details fetch fails
-          localStorage.setItem('holdersName', `Member ${memberNumber.trim()}`);
-          localStorage.setItem('userName', `Member ${memberNumber.trim()}`);
-          localStorage.setItem('accountNo', memberNumber.trim());
-          localStorage.setItem('userInitials', memberNumber.trim().substring(0, 2).toUpperCase());
-          
-          if (onLogin) {
-            onLogin(authData);
-          } else {
-            navigate('/');
-          }
-        }
-      } else {
-        setError(authData.message || authData.error || 'We could not sign you in with those details. Please check and try again.');
-      }
-    } catch (err) {
-      console.error('Login error:', err);
-      setError('We could not reach the server right now. Please check your connection and try again.');
-    } finally {
+      };
+      localStorage.setItem('memberData', JSON.stringify(demoMemberData));
+
       setLoading(false);
-    }
+
+      if (onLogin) {
+        onLogin(demoMemberData);
+      } else {
+        navigate('/');
+      }
+    }, 600);
   };
 
   const styles = {
     container: {
       display: 'flex',
+      flexDirection: 'column',
       justifyContent: 'center',
       alignItems: 'center',
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+      background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
       padding: '1rem',
       margin: 0,
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -208,7 +109,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     header: {
       textAlign: 'center',
       padding: '1rem 2rem',
-      background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+      background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
     },
     headerH2: {
       fontSize: '1.5rem',
@@ -224,18 +125,6 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     },
     body: {
       padding: '2rem',
-    },
-    errorMessage: {
-      background: 'rgba(231, 76, 60, 0.08)',
-      borderLeft: '3px solid #e74c3c',
-      color: '#c0392b',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      marginBottom: '1rem',
-      fontSize: '0.875rem',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.5rem',
     },
     formGroup: {
       marginBottom: '1.25rem',
@@ -269,6 +158,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
       fontSize: '0.875rem',
       transition: 'all 0.2s',
       boxSizing: 'border-box',
+      outline: 'none',
     },
     passwordToggle: {
       position: 'absolute',
@@ -283,7 +173,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     loginBtn: {
       width: '100%',
       padding: '0.75rem',
-      background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+      background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
       color: 'white',
       border: 'none',
       borderRadius: '10px',
@@ -327,25 +217,31 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
       padding: 0,
     },
     createLink: {
-      color: '#48bb78',
+      color: colors.accent,
     },
     forgotLink: {
-      color: '#e74c3c',
+      color: colors.primary,
+    },
+    contactFooter: {
+      marginTop: '1.25rem',
+      textAlign: 'center',
+      fontSize: '0.75rem',
+      color: 'rgba(255, 255, 255, 0.85)',
+      lineHeight: 1.6,
+      maxWidth: '420px',
+    },
+    contactLink: {
+      color: 'white',
+      fontWeight: 600,
+      textDecoration: 'none',
     },
   };
 
   const keyframes = `
     @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-    
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -358,22 +254,23 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
         <div style={styles.logoSection}>
           <img src={logo} alt="Metro Sacco Logo" style={styles.logoImage} />
         </div>
-        
+
         <div style={styles.header}>
           <h2 style={styles.headerH2}>Welcome Back!</h2>
           <p style={styles.headerP}>Sign in to your account</p>
         </div>
-        
-        <div style={styles.body}>          {error && (
+
+        <div style={styles.body}>
+          {error && (
             <Alert type="error" title="Sign in needs attention" className="auth-alert">
               {error}
             </Alert>
           )}
-          
+
           <form onSubmit={handleSubmit}>
             <div style={styles.formGroup}>
-              <label style={{...styles.formLabel, ...{position: 'relative'}}}>
-                Member Number <span style={{color: '#e74c3c'}}>*</span>
+              <label style={styles.formLabel}>
+                Member Number <span style={{ color: '#E31E24' }}>*</span>
               </label>
               <div style={styles.inputGroup}>
                 <span style={styles.inputIcon}>👤</span>
@@ -385,29 +282,29 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
                   placeholder="Enter your member number"
                   autoFocus
                   disabled={loading}
-                  onFocus={(e) => e.target.style.borderColor = '#00a3b5'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  onFocus={(e) => (e.target.style.borderColor = colors.primary)}
+                  onBlur={(e) => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </div>
             </div>
-            
+
             <div style={styles.formGroup}>
-              <label style={{...styles.formLabel, ...{position: 'relative'}}}>
-                Password <span style={{color: '#e74c3c'}}>*</span>
+              <label style={styles.formLabel}>
+                Password <span style={{ color: '#E31E24' }}>*</span>
               </label>
               <div style={styles.inputGroup}>
                 <span style={styles.inputIcon}>🔒</span>
                 <input
-                  type={showPassword ? "text" : "password"}
+                  type={showPassword ? 'text' : 'password'}
                   style={styles.formControl}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   disabled={loading}
-                  onFocus={(e) => e.target.style.borderColor = '#00a3b5'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  onFocus={(e) => (e.target.style.borderColor = colors.primary)}
+                  onBlur={(e) => (e.target.style.borderColor = '#e2e8f0')}
                 />
-                <button 
+                <button
                   type="button"
                   style={styles.passwordToggle}
                   onClick={() => setShowPassword(!showPassword)}
@@ -416,18 +313,18 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
                 </button>
               </div>
             </div>
-            
-            <button 
-              type="submit" 
+
+            <button
+              type="submit"
               style={{
                 ...styles.loginBtn,
-                ...(loading && styles.loginBtnDisabled)
+                ...(loading && styles.loginBtnDisabled),
               }}
               disabled={loading}
               onMouseEnter={(e) => {
                 if (!loading) {
                   e.target.style.transform = 'translateY(-1px)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(0, 163, 181, 0.3)';
+                  e.target.style.boxShadow = `0 4px 12px rgba(27, 58, 107, 0.3)`;
                 }
               }}
               onMouseLeave={(e) => {
@@ -440,37 +337,45 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
                   <span style={styles.spinner}></span>
                   Signing in...
                 </>
-              ) : 'Sign In'}
+              ) : (
+                'Sign In'
+              )}
             </button>
           </form>
-          
+
           <div style={styles.loginLinks}>
-            <button 
+            <button
               type="button"
-              style={{...styles.linkBtn, ...styles.createLink}}
+              style={{ ...styles.linkBtn, ...styles.createLink }}
               onClick={onCreateAccount}
               disabled={loading}
-              onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
-              onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+              onMouseEnter={(e) => (e.target.style.textDecoration = 'underline')}
+              onMouseLeave={(e) => (e.target.style.textDecoration = 'none')}
             >
               Create an Account
             </button>
-            <button 
+            <button
               type="button"
-              style={{...styles.linkBtn, ...styles.forgotLink}}
+              style={{ ...styles.linkBtn, ...styles.forgotLink }}
               onClick={onForgotPassword}
               disabled={loading}
-              onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
-              onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+              onMouseEnter={(e) => (e.target.style.textDecoration = 'underline')}
+              onMouseLeave={(e) => (e.target.style.textDecoration = 'none')}
             >
               Forgot Password?
             </button>
           </div>
         </div>
       </div>
+
+      <div style={styles.contactFooter}>
+        Need help? Call{' '}
+        <a href={CONTACT.phoneHref} style={styles.contactLink}>{CONTACT.phone}</a>{' '}
+        or email{' '}
+        <a href={CONTACT.emailHref} style={styles.contactLink}>{CONTACT.email}</a>
+      </div>
     </div>
   );
 };
 
 export default Login;
-

@@ -1,4 +1,4 @@
-// ShareStatement.js - Fast loading, no blinking, bold content - FIXED
+// ShareStatement.js - TMG Foundation themed
 import React, { useRef, useState, useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -13,35 +13,37 @@ function ShareStatement() {
   const [error, setError] = useState('');
   const [headerData, setHeaderData] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const brandColor = '#00a3b5';
 
-  // Process savings data from API response - FIXED to handle the exact data structure
+  // --- TMG FOUNDATION BRAND COLORS ---
+  const colors = {
+    primary: '#1B3A6B',
+    primaryDark: '#12294C',
+    accent: '#E31E24',
+    accentDark: '#C4181D',
+    softBlue: '#EEF3FA',
+    softRed: '#FDECEC',
+  };
+  const brandColor = colors.primary;
+
   const processSavingsData = (data) => {
-    console.log('Processing savings data:', data);
-    
     let transactions = [];
     const apiTotalSavings = data && typeof data === 'object' && !Array.isArray(data)
       ? Number(data.totalSavings ?? data.total ?? data.balance)
       : NaN;
-    
-    // Handle array directly (most common case)
+
     if (Array.isArray(data)) {
       transactions = data;
-    } 
-    // Handle object with transactions property
-    else if (data && typeof data === 'object') {
+    } else if (data && typeof data === 'object') {
       if (data.transactions) transactions = data.transactions;
       else if (data.data) transactions = data.data;
       else if (data.savings) transactions = data.savings;
       else if (data.savingsTransactions) transactions = data.savingsTransactions;
       else if (data.statement) transactions = data.statement;
       else {
-        // If none of the above, try to extract values from the object itself
         transactions = Object.values(data).filter(item => item && typeof item === 'object' && item.inputDate);
       }
     }
-    
-    // Format transactions correctly based on the actual field names
+
     const formattedTransactions = transactions.map((item, index) => ({
       id: index,
       inputDate: item?.inputDate || item?.date || item?.transactionDate || 'N/A',
@@ -50,22 +52,19 @@ function ShareStatement() {
       savings: parseFloat(item?.savings || item?.amount || item?.deposit || item?.credit || 0),
       runningAmt: parseFloat(item?.runningTotal || item?.runningAmt || item?.runningBalance || item?.balance || 0)
     }));
-    
+
     setShareTransactions(formattedTransactions);
-    
-    // Calculate totals - use the last transaction's runningTotal or sum all savings
+
     let totalSavings = Number.isFinite(apiTotalSavings) ? apiTotalSavings : 0;
     if (!Number.isFinite(apiTotalSavings) && formattedTransactions.length > 0) {
-      // Use the last transaction's running amount if available
       const lastTransaction = formattedTransactions[formattedTransactions.length - 1];
       totalSavings = lastTransaction.runningAmt || 0;
-      
-      // If runningAmt is 0 but we have savings, calculate sum
+
       if (totalSavings === 0) {
         totalSavings = formattedTransactions.reduce((sum, t) => sum + (t.savings || 0), 0);
       }
     }
-    
+
     const nextTotals = { totalSavings };
     setTotals(nextTotals);
     localStorage.setItem('savingsTransactions', JSON.stringify({
@@ -74,7 +73,6 @@ function ShareStatement() {
     }));
   };
 
-  // Fetch header configuration
   const fetchHeaderConfig = async (token) => {
     try {
       const response = await fetch('/api/v1/header/1', {
@@ -84,20 +82,26 @@ function ShareStatement() {
           'Authorization': `Bearer ${token}`
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        console.log('Header config:', data);
         setHeaderData(data);
         return data;
       }
     } catch (err) {
       console.error('Error fetching header config:', err);
     }
-    return null;
+    const fallbackHeader = {
+      organisationName: 'THE METRO GROUP FOUNDATION',
+      boxNo: '808',
+      postalCode: '00515, Buru Buru Nairobi',
+      mainTelNo: '0785278786 or 0705767392',
+      email: 'info@tmgfoundation.org'
+    };
+    setHeaderData(fallbackHeader);
+    return fallbackHeader;
   };
 
-  // Helper function to safely format numbers
   const safeFormatNumber = (value) => {
     if (value === undefined || value === null || isNaN(value)) {
       return '0.00';
@@ -105,26 +109,24 @@ function ShareStatement() {
     return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // Main data fetch - with immediate cached data
   useEffect(() => {
     const cachedMember = localStorage.getItem('memberProfile');
 
     if (cachedMember) {
       try {
         setMemberData(JSON.parse(cachedMember));
-      } catch(e) {
+      } catch (e) {
         console.error('Error loading cached member:', e);
       }
     }
 
     const fetchData = async () => {
       setError('');
-      
+
       try {
-        // Get authentication token
         let token = localStorage.getItem('authToken');
         let memberNumber = localStorage.getItem('memberNumber');
-        
+
         if (!token) {
           const storedMemberData = localStorage.getItem('memberData');
           if (storedMemberData) {
@@ -133,25 +135,21 @@ function ShareStatement() {
             memberNumber = memberNumber || parsed.accNo || parsed.memberNo;
           }
         }
-        
+
         if (!token) {
-        setError('Your session needs a refresh. Please log in again to view savings.');
+          setError('Your session needs a refresh. Please log in again to view savings.');
           setLoading(false);
           return;
         }
-        
+
         if (!memberNumber) {
           setError('We could not find your member number. Please log in again.');
           setLoading(false);
           return;
         }
-        
-        console.log('Fetching data for member:', memberNumber);
-        
-        // Fetch header configuration
+
         await fetchHeaderConfig(token);
-        
-        // Fetch member data
+
         const memberResponse = await fetch(`/api/v1/member/${memberNumber}`, {
           method: 'GET',
           headers: {
@@ -159,10 +157,9 @@ function ShareStatement() {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+
         if (memberResponse.ok) {
           const member = await memberResponse.json();
-          console.log('Member data:', member);
           setMemberData(member);
           localStorage.setItem('memberProfile', JSON.stringify(member));
         } else {
@@ -173,11 +170,9 @@ function ShareStatement() {
             setError('We could not refresh your member details. Showing available statement data.');
           }
         }
-        
-        // Fetch savings data from correct endpoint
+
         const savingsUrl = `/api/v1/savings/${memberNumber}`;
-        console.log('Fetching savings from:', savingsUrl);
-        
+
         const savingsResponse = await fetch(savingsUrl, {
           method: 'GET',
           headers: {
@@ -185,14 +180,12 @@ function ShareStatement() {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+
         if (savingsResponse.ok) {
           const savingsData = await savingsResponse.json();
-          console.log('Savings data received:', savingsData);
-          
+
           if (savingsData && (Array.isArray(savingsData) ? savingsData.length > 0 : Object.keys(savingsData).length > 0)) {
             processSavingsData(savingsData);
-            
           } else {
             setError('No savings records were found for this member.');
             setShareTransactions([]);
@@ -207,7 +200,7 @@ function ShareStatement() {
           setShareTransactions([]);
           setTotals({ totalSavings: 0 });
         }
-        
+
       } catch (err) {
         console.error('Error fetching data:', err);
         const cachedSavings = localStorage.getItem('savingsTransactions');
@@ -231,7 +224,7 @@ function ShareStatement() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, [refreshKey]);
 
@@ -264,7 +257,6 @@ function ShareStatement() {
     pdf.save(`savings-statement-${memberData?.accNo || 'member'}-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
-  // Show minimal loading only if no data at all
   if (loading && !memberData && shareTransactions.length === 0) {
     return (
       <div className="loading-container">
@@ -303,11 +295,9 @@ function ShareStatement() {
 
   return (
     <>
-      {/* Report Content */}
       <div ref={reportRef} className="report-container">
-        {/* Header */}
         <div className="report-header">
-          <h1>{headerData?.organisationName || 'METROPOLITAN HOSPITAL SACCO LTD'}</h1>
+          <h1>{headerData?.organisationName || 'THE METRO GROUP FOUNDATION'}</h1>
           <p>Deposits/Savings Statement</p>
           {headerData && (
             <div className="contact-info">
@@ -321,7 +311,6 @@ function ShareStatement() {
           </p>
         </div>
 
-        {/* Member Information */}
         <div className="member-section">
           <table className="info-table">
             <tbody>
@@ -349,7 +338,6 @@ function ShareStatement() {
           </table>
         </div>
 
-        {/* Savings Statement Table */}
         <div className="table-section">
           <table className="report-table">
             <thead>
@@ -368,14 +356,17 @@ function ShareStatement() {
                     <td className="date-cell"><strong>{transaction.inputDate || 'N/A'}</strong></td>
                     <td className="narration-cell"><strong>{transaction.narration || 'N/A'}</strong></td>
                     <td>{transaction.ref || 'N/A'}</td>
-                    <td className="amount"><strong>{safeFormatNumber(transaction.savings)}</strong></td>
+                    <td className="amount credit-cell"><strong>{safeFormatNumber(transaction.savings)}</strong></td>
                     <td className="amount"><strong>{safeFormatNumber(transaction.runningAmt)}</strong></td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', fontWeight: 'bold' }}>
-                    No savings transactions found
+                  <td colSpan="5" style={{ padding: '1.5rem' }}>
+                    <div className="empty-state">
+                      <strong>No savings transactions yet</strong>
+                      <span>Your savings deposits will appear here once they begin.</span>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -392,32 +383,33 @@ function ShareStatement() {
           </table>
         </div>
 
-        {/* Footer Note */}
         <div className="report-footer">
           <p><strong>Note:</strong> This statement shows your savings/deposit transactions.</p>
-          <p>For any queries, please contact the Sacco office.</p>
+          <p>For any queries, please contact the office at {headerData?.email || 'info@tmgfoundation.org'}.</p>
         </div>
       </div>
 
-      {/* Download Button */}
       <div className="download-section">
         <button onClick={handleDownloadPDF} className="download-btn" disabled={shareTransactions.length === 0}>
           📄 Download PDF Statement
         </button>
       </div>
+
       {error && (
-        <Alert type="warning" title="Savings statement notice">
-          {error}
-        </Alert>
+        <div style={{ maxWidth: '1200px', margin: '1rem auto' }}>
+          <Alert type="warning" title="Savings statement notice">
+            {error}
+          </Alert>
+        </div>
       )}
 
       <style>{`
         .report-container {
           background: white;
           padding: 2rem;
-          border-radius: 8px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          font-family: 'Courier New', 'Monaco', monospace;
+          border-radius: 16px;
+          box-shadow: 0 4px 16px rgba(18, 41, 76, 0.06);
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           max-width: 1200px;
           margin: 0 auto;
           transform: translateZ(0);
@@ -429,29 +421,28 @@ function ShareStatement() {
           text-align: center;
           margin-bottom: 2rem;
           padding-bottom: 1rem;
-          border-bottom: 2px solid #000;
+          border-bottom: 2px solid ${colors.primary};
         }
 
         .report-header h1 {
           font-size: 1.25rem;
-          font-weight: bold;
+          font-weight: 800;
           margin: 0;
-          letter-spacing: 1px;
-          color: #000;
+          letter-spacing: 0.3px;
+          color: ${colors.primary};
         }
 
         .report-header p {
-          font-size: 0.9rem;
+          font-size: 0.95rem;
           margin: 0.25rem 0 0;
-          color: #000;
-          font-weight: bold;
+          color: #4a5568;
+          font-weight: 600;
         }
 
         .contact-info {
-          font-size: 0.7rem;
-          color: #333;
+          font-size: 0.72rem;
+          color: #718096;
           margin-top: 0.5rem;
-          font-weight: bold;
         }
 
         .info-table {
@@ -462,25 +453,25 @@ function ShareStatement() {
         }
 
         .info-table td {
-          padding: 0.75rem;
-          border: 1px solid #000;
+          padding: 0.6rem 0.75rem;
+          border: 1px solid #e2e8f0;
         }
 
         .info-label {
-          font-weight: bold;
-          background-color: #f0f0f0;
+          font-weight: 700;
+          background-color: ${colors.softBlue};
           width: 100px;
-          color: #000;
+          color: ${colors.primary};
         }
 
         .info-value {
-          color: #000;
+          color: #1a202c;
           font-weight: 500;
         }
 
         .info-value strong {
-          font-weight: 800;
-          color: #000;
+          font-weight: 700;
+          color: #1a202c;
         }
 
         .table-section {
@@ -491,24 +482,35 @@ function ShareStatement() {
         .report-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 0.8rem;
+          font-size: 0.78rem;
         }
 
         .report-table th {
-          border: 2px solid #000;
-          padding: 0.75rem;
-          text-align: center;
-          font-weight: 800;
-          background: #f0f0f0;
-          color: #000;
-          font-size: 0.85rem;
+          border: 1px solid rgba(27, 58, 107, 0.15);
+          padding: 0.75rem 0.6rem;
+          text-align: left;
+          font-weight: 700;
+          background: ${colors.primary};
+          color: white;
+          font-size: 0.72rem;
+          letter-spacing: 0.3px;
+          white-space: nowrap;
         }
 
         .report-table td {
-          border: 1px solid #000;
+          border: 1px solid #e2e8f0;
           padding: 0.6rem;
-          color: #000;
+          color: #1a202c;
           font-weight: 500;
+          background: white;
+        }
+
+        .report-table tbody tr:nth-child(even) td {
+          background: #fafbfd;
+        }
+
+        .report-table tbody tr:hover td {
+          background: ${colors.softBlue};
         }
 
         .report-table td.amount {
@@ -518,8 +520,8 @@ function ShareStatement() {
         }
 
         .report-table td strong {
-          font-weight: 800;
-          color: #000;
+          font-weight: 700;
+          color: #1a202c;
         }
 
         .report-table td.date-cell,
@@ -527,25 +529,46 @@ function ShareStatement() {
           font-weight: 600;
         }
 
-        .total-row {
-          background: #f0f0f0;
-          font-weight: 800;
+        .report-table td.credit-cell strong {
+          color: #15803d;
         }
 
+        .empty-state {
+          display: inline-flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.35rem;
+          color: ${colors.primary};
+          background: ${colors.softBlue};
+          border: 1px dashed rgba(27, 58, 107, 0.3);
+          border-radius: 10px;
+          padding: 1rem 1.25rem;
+          max-width: 440px;
+        }
+
+        .empty-state strong { font-size: 0.95rem; }
+        .empty-state span { color: #4b5563; line-height: 1.5; font-size: 0.82rem; }
+
         .total-row td {
+          background: ${colors.softBlue} !important;
           font-weight: 800;
-          border-top: 2px solid #000;
-          border-bottom: 2px solid #000;
-          color: #000;
+          border-top: 2px solid ${colors.primary};
+          border-bottom: 2px solid ${colors.primary};
+          color: ${colors.primary};
+        }
+
+        .total-row td strong {
+          color: ${colors.primary};
         }
 
         .report-footer {
           margin-top: 2rem;
           padding-top: 1rem;
-          border-top: 1px solid #000;
+          border-top: 1px solid #e2e8f0;
           text-align: center;
-          font-size: 0.7rem;
-          color: #333;
+          font-size: 0.72rem;
+          color: #64748b;
+          line-height: 1.6;
         }
 
         .report-footer p {
@@ -555,7 +578,7 @@ function ShareStatement() {
 
         .report-footer p strong {
           font-weight: 800;
-          color: #000;
+          color: ${colors.primary};
         }
 
         .download-section {
@@ -566,20 +589,20 @@ function ShareStatement() {
 
         .download-btn {
           padding: 0.75rem 2rem;
-          background: ${brandColor};
+          background: linear-gradient(135deg, ${colors.primary}, ${colors.primaryDark});
           color: white;
           border: none;
-          border-radius: 8px;
-          font-size: 1rem;
-          font-weight: 600;
+          border-radius: 10px;
+          font-size: 0.9rem;
+          font-weight: 700;
           cursor: pointer;
           transition: all 0.2s;
+          box-shadow: 0 6px 16px rgba(27, 58, 107, 0.25);
         }
 
         .download-btn:hover:not(:disabled) {
-          background: #008a9a;
           transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 163, 181, 0.3);
+          box-shadow: 0 10px 22px rgba(27, 58, 107, 0.35);
         }
 
         .download-btn:disabled {
@@ -587,40 +610,19 @@ function ShareStatement() {
           cursor: not-allowed;
         }
 
-        .error-message {
-          margin-top: 1rem;
-          padding: 0.75rem 1rem;
-          background: #fed7d7;
-          border-left: 4px solid #e53e3e;
-          border-radius: 6px;
-          color: #742a2a;
-          font-size: 0.875rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          max-width: 1200px;
-          margin-left: auto;
-          margin-right: auto;
-          font-weight: 500;
-        }
-
         @media print {
           .download-section {
             display: none;
           }
-          
+
           .report-container {
             padding: 0;
             box-shadow: none;
           }
-          
+
           .report-table th,
           .report-table td {
             border: 1px solid #000 !important;
-          }
-          
-          .error-message {
-            display: none;
           }
         }
 
@@ -628,21 +630,21 @@ function ShareStatement() {
           .report-container {
             padding: 1rem;
           }
-          
+
           .report-table {
-            font-size: 0.7rem;
+            font-size: 0.68rem;
           }
-          
+
           .report-table th,
           .report-table td {
             padding: 0.4rem;
           }
-          
+
           .info-table td {
             display: block;
             width: 100%;
           }
-          
+
           .info-label {
             width: auto;
           }
@@ -653,4 +655,3 @@ function ShareStatement() {
 }
 
 export default ShareStatement;
-

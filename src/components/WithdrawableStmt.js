@@ -17,12 +17,19 @@ function WithdrawableStmt() {
   const [statementLoading, setStatementLoading] = useState(false);
   const [mpesaAccount, setMpesaAccount] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  
-  const brandColor = '#00a3b5';
+
+  // --- TMG FOUNDATION BRAND COLORS ---
+  const colors = {
+    primary: '#1B3A6B',
+    primaryDark: '#12294C',
+    accent: '#E31E24',
+    accentDark: '#C4181D',
+    softBlue: '#EEF3FA',
+    softRed: '#FDECEC',
+  };
+  const brandColor = colors.primary;
 
   const processWithdrawableData = (data) => {
-    console.log('Raw API response:', JSON.stringify(data, null, 2));
-    
     let items = [];
     if (Array.isArray(data)) {
       items = data;
@@ -31,7 +38,7 @@ function WithdrawableStmt() {
       else if (data.withdrawable) items = data.withdrawable;
       else if (data.accNo || data.outStanding) items = [data];
     }
-    
+
     const formattedItems = items.map((item, index) => ({
       id: index,
       accNo: item.accNo,
@@ -44,12 +51,11 @@ function WithdrawableStmt() {
       idNo: item.idNo,
       postalAddress: item.postalAddress
     }));
-    
-    console.log('Formatted withdrawable data:', formattedItems);
+
     setWithdrawableData(formattedItems);
-    
+
     const totalOutstanding = formattedItems.reduce((sum, item) => sum + (item.outStanding || 0), 0);
-    
+
     if (formattedItems.length > 0) {
       localStorage.setItem('withdrawableData', JSON.stringify({ items: formattedItems, totals: { totalOutstanding } }));
     }
@@ -69,19 +75,21 @@ function WithdrawableStmt() {
     } catch (err) {
       console.error('Error fetching header config:', err);
     }
-    return {
-      organisationName: 'METROPOLITAN HOSPITAL SACCO LTD',
-      boxNo: 'P.O. Box 12345',
-      postalCode: '00100',
-      mainTelNo: '020-1234567',
-      email: 'info@metro-sacco.com'
+    const fallbackHeader = {
+      organisationName: 'THE METRO GROUP FOUNDATION',
+      boxNo: '808',
+      postalCode: '00515, Buru Buru Nairobi',
+      mainTelNo: '0785278786 or 0705767392',
+      email: 'info@tmgfoundation.org'
     };
+    setHeaderData(fallbackHeader);
+    return fallbackHeader;
   };
 
   const handleDownloadPDF = () => {
     if (pdfBlob && selectedAccount) {
       const fileName = `withdrawable-statement-${selectedAccount.accNo}-${new Date().toISOString().split('T')[0]}.pdf`;
-      
+
       const downloadUrl = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -89,7 +97,7 @@ function WithdrawableStmt() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       setTimeout(() => {
         URL.revokeObjectURL(downloadUrl);
       }, 100);
@@ -103,19 +111,17 @@ function WithdrawableStmt() {
     setSelectedAccount(account);
     setStatementLoading(true);
     setShowModal(true);
-    
+
     if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
       setPdfUrl(null);
       setPdfBlob(null);
     }
-    
+
     try {
       const token = localStorage.getItem('authToken');
       const memberNumber = localStorage.getItem('memberNumber');
-      
-      console.log('Generating withdrawable statement for account:', account.accNo);
-      
+
       const response = await fetch('/api/v1/withdrawable-statement-direct', {
         method: 'POST',
         headers: {
@@ -129,7 +135,7 @@ function WithdrawableStmt() {
           endDate: new Date().toISOString().split('T')[0]
         })
       });
-      
+
       if (response.ok) {
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
@@ -161,7 +167,7 @@ function WithdrawableStmt() {
   const handleMainPDFDownload = async () => {
     const element = reportRef.current;
     if (!element) return;
-    
+
     try {
       const canvas = await html2canvas(element, {
         scale: 2,
@@ -191,11 +197,11 @@ function WithdrawableStmt() {
     const fetchData = async () => {
       setLoading(true);
       setError('');
-      
+
       try {
         let token = localStorage.getItem('authToken');
         let memberNumber = localStorage.getItem('memberNumber');
-        
+
         if (!token) {
           const storedMemberData = localStorage.getItem('memberData');
           if (storedMemberData) {
@@ -204,28 +210,27 @@ function WithdrawableStmt() {
             memberNumber = memberNumber || parsed.accNo || parsed.memberNo;
           }
         }
-        
+
         if (!token) {
           setError('Your session needs a refresh. Please log in again to view withdrawable deposits.');
           setLoading(false);
           return;
         }
-        
+
         if (!memberNumber) {
           setError('We could not find your member number. Please log in again.');
           setLoading(false);
           return;
         }
-        
-        console.log('Fetching data for member:', memberNumber);
+
         await fetchHeaderConfig(token);
-        
+
         try {
           const memberResponse = await fetch(`/api/v1/member/${memberNumber}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
           });
-          
+
           if (memberResponse.ok) {
             const member = await memberResponse.json();
             setMemberData(member);
@@ -234,19 +239,17 @@ function WithdrawableStmt() {
         } catch (err) {
           console.error('Error fetching member data:', err);
         }
-        
+
         const withdrawableUrl = `/api/v1/withDrawable/${memberNumber}`;
-        console.log('Fetching from:', withdrawableUrl);
-        
+
         const response = await fetch(withdrawableUrl, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
         });
-        
+
         if (response.ok) {
           const data = await response.json();
-          console.log('RAW API RESPONSE:', JSON.stringify(data, null, 2));
-          
+
           if (Array.isArray(data)) {
             processWithdrawableData(data);
           } else if (data && data.data && Array.isArray(data.data)) {
@@ -262,7 +265,7 @@ function WithdrawableStmt() {
           setError('We could not refresh your withdrawable deposits right now. Please try again.');
           setWithdrawableData([]);
         }
-        
+
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('We could not reach the server right now. Please check your connection and try again.');
@@ -270,9 +273,9 @@ function WithdrawableStmt() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
-    
+
     return () => {
       if (pdfUrl) {
         URL.revokeObjectURL(pdfUrl);
@@ -313,7 +316,7 @@ function WithdrawableStmt() {
     <>
       <div ref={reportRef} className="report-container">
         <div className="report-header">
-          <h1>{headerData?.organisationName || 'METROPOLITAN HOSPITAL SACCO LTD'}</h1>
+          <h1>{headerData?.organisationName || 'THE METRO GROUP FOUNDATION'}</h1>
           <p>Withdrawable Deposit Statement</p>
           {headerData && (
             <div className="contact-info">
@@ -370,11 +373,10 @@ function WithdrawableStmt() {
                   <td>{item.regDate || 'N/A'}</td>
                   <td>{item.curDate || 'N/A'}</td>
                   <td className="amount"><strong>{formatRawValue(item.outStanding)}</strong></td>
-                  <td className="action-cell" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <td className="action-cell">
                     <button
                       className="view-stmt-btn"
                       onClick={() => handleViewStatement(item)}
-                      style={{ backgroundColor: brandColor }}
                     >
                       View Statement
                     </button>
@@ -392,7 +394,12 @@ function WithdrawableStmt() {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>No withdrawable records found</td>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div className="empty-state">
+                      <strong>No withdrawable records found</strong>
+                      <span>Withdrawable deposits will appear here once available.</span>
+                    </div>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -410,7 +417,7 @@ function WithdrawableStmt() {
 
         <div className="report-footer">
           <p><strong>Note:</strong> This statement shows your withdrawable deposits and outstanding amounts.</p>
-          <p>For any queries, please contact the Sacco office.</p>
+          <p>For any queries, please contact the office at {headerData?.email || 'info@tmgfoundation.org'}.</p>
         </div>
       </div>
 
@@ -450,7 +457,7 @@ function WithdrawableStmt() {
             </div>
             <div className="modal-footer">
               {pdfUrl && (
-                <button 
+                <button
                   onClick={handleDownloadPDF}
                   className="download-stmt-btn"
                 >
@@ -476,46 +483,106 @@ function WithdrawableStmt() {
         .report-container {
           background: white;
           padding: 2rem;
-          border-radius: 8px;
+          border-radius: 16px;
           max-width: 1400px;
           margin: 0 auto;
-          font-family: monospace;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          box-shadow: 0 4px 16px rgba(18, 41, 76, 0.06);
         }
         .report-header {
           text-align: center;
           margin-bottom: 2rem;
           padding-bottom: 1rem;
-          border-bottom: 2px solid #000;
+          border-bottom: 2px solid ${colors.primary};
         }
-        .report-header h1 { font-size: 1.25rem; margin: 0; }
-        .contact-info { font-size: 0.7rem; margin-top: 0.5rem; }
+        .report-header h1 {
+          font-size: 1.25rem;
+          margin: 0;
+          color: ${colors.primary};
+          font-weight: 800;
+          letter-spacing: 0.3px;
+        }
+        .report-header p {
+          color: #4a5568;
+          margin: 0.25rem 0 0;
+          font-size: 0.9rem;
+          font-weight: 600;
+        }
+        .contact-info { font-size: 0.72rem; margin-top: 0.5rem; color: #718096; }
+
         .info-table, .report-table {
           width: 100%;
           border-collapse: collapse;
           margin-bottom: 1rem;
         }
-        .info-table td, .report-table td, .report-table th {
-          border: 1px solid #000;
-          padding: 0.5rem;
+
+        .info-table td {
+          border: 1px solid #e2e8f0;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.78rem;
         }
+
+        .info-label {
+          background: ${colors.softBlue};
+          color: ${colors.primary};
+          font-weight: 700;
+          width: 15%;
+        }
+
+        .info-value {
+          color: #1a202c;
+          width: 35%;
+        }
+
+        .report-table td, .report-table th {
+          border: 1px solid #e2e8f0;
+          padding: 0.6rem 0.5rem;
+          font-size: 0.78rem;
+        }
+
         .report-table th {
-          background: #f0f0f0;
-          font-weight: bold;
+          background: ${colors.primary};
+          color: white;
+          font-weight: 700;
+          text-align: left;
+          white-space: nowrap;
+          letter-spacing: 0.3px;
         }
+
+        .report-table td {
+          color: #1a202c;
+        }
+
+        .report-table tbody tr:nth-child(even) td {
+          background: #fafbfd;
+        }
+
+        .report-table tbody tr:hover td {
+          background: ${colors.softBlue};
+        }
+
         .amount {
           text-align: right;
+          font-weight: 600;
         }
+
         .view-stmt-btn {
-          background: ${brandColor};
+          background: ${colors.primary};
           color: white;
           border: none;
-          padding: 0.3rem 0.8rem;
-          border-radius: 4px;
+          padding: 0.35rem 0.85rem;
+          border-radius: 8px;
           cursor: pointer;
           font-size: 0.7rem;
+          font-weight: 700;
+          transition: all 0.2s;
+          white-space: nowrap;
         }
+
         .view-stmt-btn:hover {
-          opacity: 0.9;
+          background: ${colors.primaryDark};
+          transform: translateY(-1px);
+          box-shadow: 0 4px 10px rgba(27, 58, 107, 0.25);
         }
 
         .mpesa-pay-btn {
@@ -546,37 +613,69 @@ function WithdrawableStmt() {
           box-shadow: 0 10px 20px rgba(39, 174, 96, 0.32);
         }
 
-        .total-row {
-          background: #f0f0f0;
-          font-weight: bold;
+        .total-row td {
+          background: ${colors.softBlue} !important;
+          font-weight: 800;
+          border-top: 2px solid ${colors.primary};
+          border-bottom: 2px solid ${colors.primary};
+          color: ${colors.primary};
         }
+
+        .empty-state {
+          display: inline-flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.35rem;
+          color: ${colors.primary};
+          background: ${colors.softBlue};
+          border: 1px dashed rgba(27, 58, 107, 0.3);
+          border-radius: 10px;
+          padding: 1rem 1.25rem;
+          max-width: 440px;
+        }
+
+        .empty-state strong { font-size: 0.95rem; }
+        .empty-state span { color: #4b5563; line-height: 1.5; font-size: 0.82rem; }
+
         .report-footer {
           margin-top: 1rem;
           text-align: center;
-          font-size: 0.7rem;
+          font-size: 0.72rem;
+          color: #64748b;
+          line-height: 1.6;
         }
+
+        .report-footer strong { color: ${colors.primary}; }
+
         .download-section {
           text-align: center;
           margin-top: 1rem;
         }
         .download-btn {
-          background: ${brandColor};
+          background: linear-gradient(135deg, ${colors.primary}, ${colors.primaryDark});
           color: white;
           border: none;
-          padding: 0.5rem 1.5rem;
-          border-radius: 4px;
+          padding: 0.7rem 1.75rem;
+          border-radius: 10px;
           cursor: pointer;
+          font-weight: 700;
+          font-size: 0.85rem;
+          box-shadow: 0 6px 16px rgba(27, 58, 107, 0.25);
+          transition: all 0.2s;
         }
-        .download-btn:hover {
-          opacity: 0.9;
+        .download-btn:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 22px rgba(27, 58, 107, 0.35);
         }
+        .download-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         .modal-overlay {
           position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0,0,0,0.7);
+          inset: 0;
+          background: rgba(18, 41, 76, 0.7);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -584,19 +683,26 @@ function WithdrawableStmt() {
         }
         .modal-container {
           background: white;
-          border-radius: 8px;
+          border-radius: 14px;
           width: 90%;
           max-width: 1200px;
           height: 90vh;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
         .modal-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 1rem;
-          border-bottom: 2px solid ${brandColor};
+          padding: 1rem 1.25rem;
+          border-bottom: 2px solid ${colors.primary};
+          background: ${colors.softBlue};
+        }
+        .modal-header h2 {
+          margin: 0;
+          font-size: 1.05rem;
+          color: ${colors.primary};
         }
         .modal-close {
           background: none;
@@ -604,9 +710,11 @@ function WithdrawableStmt() {
           font-size: 1.5rem;
           cursor: pointer;
           font-weight: bold;
+          color: ${colors.primary};
+          line-height: 1;
         }
         .modal-close:hover {
-          color: ${brandColor};
+          color: ${colors.accent};
         }
         .modal-body {
           flex: 1;
@@ -619,30 +727,33 @@ function WithdrawableStmt() {
           justify-content: flex-end;
           gap: 1rem;
           padding: 1rem;
-          border-top: 1px solid #ddd;
+          border-top: 1px solid #e2e8f0;
         }
         .download-stmt-btn, .close-modal-btn {
-          padding: 0.5rem 1rem;
+          padding: 0.55rem 1.15rem;
           border: none;
-          border-radius: 4px;
+          border-radius: 8px;
           cursor: pointer;
           text-decoration: none;
           display: inline-block;
-          font-size: 0.9rem;
+          font-size: 0.85rem;
+          font-weight: 700;
+          transition: all 0.2s;
         }
         .download-stmt-btn {
-          background: ${brandColor};
+          background: linear-gradient(135deg, ${colors.primary}, ${colors.primaryDark});
           color: white;
         }
         .download-stmt-btn:hover {
-          opacity: 0.9;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(27, 58, 107, 0.25);
         }
         .close-modal-btn {
-          background: #666;
+          background: #6b7280;
           color: white;
         }
         .close-modal-btn:hover {
-          background: #555;
+          background: #4b5563;
         }
         .pdf-viewer {
           width: 100%;
@@ -661,7 +772,7 @@ function WithdrawableStmt() {
           width: 40px;
           height: 40px;
           border: 3px solid #e2e8f0;
-          border-top-color: ${brandColor};
+          border-top-color: ${colors.primary};
           border-radius: 50%;
           animation: spin 1s linear infinite;
         }
@@ -670,17 +781,25 @@ function WithdrawableStmt() {
           align-items: center;
           justify-content: center;
           height: 100%;
-          color: #e53e3e;
+          color: ${colors.accent};
         }
         .error-message {
-          margin-top: 1rem;
-          padding: 0.75rem;
-          background: #fed7d7;
-          border-left: 4px solid #e53e3e;
-          color: #742a2a;
+          margin: 1rem auto 0;
+          padding: 0.75rem 1rem;
+          background: ${colors.softRed};
+          border-left: 4px solid ${colors.accent};
+          color: #991b1b;
+          border-radius: 8px;
+          max-width: 1400px;
+          font-size: 0.85rem;
+          font-weight: 500;
         }
         .action-cell {
-          text-align: center;
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: center;
         }
         @keyframes spin {
           to { transform: rotate(360deg); }

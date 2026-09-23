@@ -197,7 +197,7 @@ const ChangePassword = () => {
           <form onSubmit={handleChangePassword}>
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                Member Number <span style={{color: '#e74c3c'}}>*</span>
+                Member Number <span style={{color: '#E31E24'}}>*</span>
               </label>
               <input
                 type="text"
@@ -208,13 +208,15 @@ const ChangePassword = () => {
                 placeholder="Enter your member number"
                 disabled={loading}
                 autoFocus
+                onFocus={(e) => e.target.style.borderColor = '#1B3A6B'}
+                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
 
             {/* OTP Field - Now below Member Number */}
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                OTP Code <span style={{color: '#e74c3c'}}>*</span>
+                OTP Code <span style={{color: '#E31E24'}}>*</span>
               </label>
               <input
                 type="text"
@@ -224,6 +226,8 @@ const ChangePassword = () => {
                 onChange={handleChange}
                 placeholder="Enter OTP"
                 disabled={loading}
+                onFocus={(e) => e.target.style.borderColor = '#1B3A6B'}
+                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
 
@@ -251,7 +255,7 @@ const ChangePassword = () => {
 
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                New Password <span style={{color: '#e74c3c'}}>*</span>
+                New Password <span style={{color: '#E31E24'}}>*</span>
               </label>
               <input
                 type="password"
@@ -261,13 +265,15 @@ const ChangePassword = () => {
                 onChange={handleChange}
                 placeholder="Minimum 4 characters"
                 disabled={loading}
+                onFocus={(e) => e.target.style.borderColor = '#1B3A6B'}
+                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
               <small style={styles.inputHint}>Password must be at least 4 characters long</small>
             </div>
 
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                Confirm Password <span style={{color: '#e74c3c'}}>*</span>
+                Confirm Password <span style={{color: '#E31E24'}}>*</span>
               </label>
               <input
                 type="password"
@@ -277,6 +283,8 @@ const ChangePassword = () => {
                 onChange={handleChange}
                 placeholder="Re-enter new password"
                 disabled={loading}
+                onFocus={(e) => e.target.style.borderColor = '#1B3A6B'}
+                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
 
@@ -290,7 +298,8 @@ const ChangePassword = () => {
               onMouseEnter={(e) => {
                 if (!loading) {
                   e.target.style.transform = 'translateY(-1px)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(0, 163, 181, 0.3)';
+                  // Updated shadow color to Blue
+                  e.target.style.boxShadow = '0 4px 12px rgba(27, 58, 107, 0.3)';
                 }
               }}
               onMouseLeave={(e) => {
@@ -331,7 +340,8 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
     minHeight: '100vh',
-    background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+    // Changed from Teal to TMG Blue Gradient
+    background: 'linear-gradient(135deg, #1B3A6B 0%, #142C52 100%)',
     padding: '1rem',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   },
@@ -359,7 +369,8 @@ const styles = {
   header: {
     textAlign: 'center',
     padding: '1rem 2rem',
-    background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+    // Changed to TMG Blue Gradient
+    background: 'linear-gradient(135deg, #1B3A6B 0%, #142C52 100%)',
   },
   headerH2: {
     fontSize: '1.5rem',
@@ -377,9 +388,9 @@ const styles = {
     padding: '2rem',
   },
   errorMessage: {
-    background: 'rgba(231, 76, 60, 0.08)',
-    borderLeft: '3px solid #e74c3c',
-    color: '#c0392b',
+    background: 'rgba(227, 30, 36, 0.08)',
+    borderLeft: '3px solid #E31E24',
+    color: '#C4181D',
     padding: '0.75rem',
     borderRadius: '8px',
     marginBottom: '1rem',
@@ -420,6 +431,7 @@ const styles = {
     fontSize: '0.875rem',
     transition: 'all 0.2s',
     boxSizing: 'border-box',
+    outline: 'none',
   },
   inputHint: {
     display: 'block',
@@ -430,7 +442,8 @@ const styles = {
   otpButton: {
     width: '100%',
     padding: '0.75rem',
-    background: '#48bb78',
+    // Changed to TMG Red
+    background: '#E31E24',
     color: 'white',
     border: 'none',
     borderRadius: '10px',
@@ -441,7 +454,8 @@ const styles = {
     marginBottom: '1.25rem',
   },
   otpButtonSent: {
-    background: '#ed8936',
+    // Changed to TMG Dark Blue
+    background: '#1B3A6B',
   },
   otpButtonDisabled: {
     opacity: 0.6,
@@ -450,7 +464,8 @@ const styles = {
   submitButton: {
     width: '100%',
     padding: '0.75rem',
-    background: 'linear-gradient(135deg, #00a3b5 0%, #008a9a 100%)',
+    // Changed to TMG Blue Gradient
+    background: 'linear-gradient(135deg, #1B3A6B 0%, #142C52 100%)',
     color: 'white',
     border: 'none',
     borderRadius: '10px',
@@ -474,7 +489,8 @@ const styles = {
   backLink: {
     background: 'none',
     border: 'none',
-    color: '#00a3b5',
+    // Changed to TMG Blue
+    color: '#1B3A6B',
     fontSize: '0.875rem',
     cursor: 'pointer',
     fontWeight: 500,

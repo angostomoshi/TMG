@@ -1,7 +1,33 @@
-// MemberProfile.js
+// MemberProfile.js — DEMO MODE (no backend)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Alert from './Alert';
+
+// ─────────────────────────────────────────────────────────────
+// DEMO DATA — remove this block when reconnecting the backend
+// ─────────────────────────────────────────────────────────────
+const SIMULATE_LOADING = true; // set false for instant render
+const DEMO_DATA = {
+  profile: {
+    holdersName: 'Jane Wanjiku Mwangi',
+    accNo: 'TMG-004821',
+    memberNo: 'TMG-004821',
+    idNo: '28471935',
+    emailAdd: 'jane.mwangi@example.co.ke',
+    tel1: '+254 712 345 678',
+    postalAddress: 'P.O. Box 1420-00100, Nairobi',
+    id: '4821',
+    kraPin: 'A012345678Z',
+    createdAt: '2019-03-14T00:00:00.000Z',
+    nok1: 'Peter Mwangi (Spouse) — +254 722 111 222',
+    nok2: 'Grace Njeri (Daughter) — +254 733 444 555',
+    nok3: 'Samuel Otieno (Brother) — +254 701 777 888',
+  },
+  savings: 248500,
+  shareCapital: 120000,
+  dividendPayable: 36750,
+};
+// ─────────────────────────────────────────────────────────────
 
 const MemberProfile = () => {
   const navigate = useNavigate();
@@ -11,165 +37,50 @@ const MemberProfile = () => {
   const [dividendPayable, setDividendPayable] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const brandColor = '#00a3b5';
 
-  // Helper function to get auth headers
-  const getAuthHeaders = () => {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    
-    const authToken = localStorage.getItem('authToken');
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    } else {
-      const storedData = localStorage.getItem('memberData');
-      if (storedData) {
-        const parsed = JSON.parse(storedData);
-        if (parsed.token) {
-          headers['Authorization'] = `Bearer ${parsed.token}`;
-        }
-      }
-    }
-    
-    return headers;
-  };
-
-  // Helper function to get member number
-  const getMemberNumber = () => {
-    let memberNumber = localStorage.getItem('memberNumber');
-    
-    if (!memberNumber) {
-      const storedMemberData = localStorage.getItem('memberData');
-      if (storedMemberData) {
-        const parsed = JSON.parse(storedMemberData);
-        memberNumber = parsed.accNo || parsed.memberNo || parsed.memberNumber || parsed.memberNo;
-      }
-    }
-    
-    return memberNumber;
-  };
+  // TMG Foundation brand colors
+  const brandColor = '#1B3A6B';
+  const brandAccent = '#E31E24';
+  const isDemo = true; // flip to false when wiring real data
 
   useEffect(() => {
-    // First, try to load cached data immediately
-    const cachedProfile = localStorage.getItem('memberProfile');
-    if (cachedProfile) {
-      setMemberData(JSON.parse(cachedProfile));
-    }
-
-    const fetchAllData = async () => {
-      setError('');
-      
-      try {
-        const memberNumber = getMemberNumber();
-        
-        if (!memberNumber) {
-          setError('Member number not found. Please login again.');
-          setTimeout(() => navigate('/login'), 2000);
-          setLoading(false);
-          return;
-        }
-        
-        const headers = getAuthHeaders();
-        
-        // Fetch all four endpoints in parallel
-        const [profileResponse, savingsResponse, shareCapitalResponse, dividendResponse] = await Promise.allSettled([
-          fetch(`/api/v1/member/${memberNumber}`, {
-            method: 'GET',
-            headers: headers,
-            credentials: 'include'
-          }),
-          fetch(`/api/v1/savings/sumTotal/${memberNumber}`, {
-            method: 'GET',
-            headers: headers,
-            credentials: 'include'
-          }),
-          fetch(`/api/v1/shareCapital/sumTotal/${memberNumber}`, {
-            method: 'GET',
-            headers: headers,
-            credentials: 'include'
-          }),
-          fetch(`/api/v1/dividendPayable/sumTotal/${memberNumber}`, {
-            method: 'GET',
-            headers: headers,
-            credentials: 'include'
-          })
-        ]);
-        
-        // Handle Profile Data
-        if (profileResponse.status === 'fulfilled' && profileResponse.value.ok) {
-          const profileData = await profileResponse.value.json();
-          setMemberData(profileData);
-          localStorage.setItem('memberProfile', JSON.stringify(profileData));
-        } else if (profileResponse.status === 'fulfilled' && (profileResponse.value.status === 401 || profileResponse.value.status === 403)) {
-          // Session expired
-          localStorage.clear();
-          setError('Session expired. Please login again.');
-          setTimeout(() => navigate('/login'), 2000);
-          setLoading(false);
-          return;
-        } else {
-          console.error('Failed to fetch profile');
-          const cached = localStorage.getItem('memberProfile');
-          if (cached) {
-            setMemberData(JSON.parse(cached));
-          } else {
-            setError('Failed to load profile data');
-          }
-        }
-        
-        // Handle Savings Data
-        if (savingsResponse.status === 'fulfilled' && savingsResponse.value.ok) {
-          const savingsData = await savingsResponse.value.json();
-          // The API might return a number directly or an object with a sumTotal property
-          setSavings(typeof savingsData === 'number' ? savingsData : savingsData?.sumTotal || savingsData?.total || 0);
-        } else {
-          console.error('Failed to fetch savings');
-          setSavings(0);
-        }
-        
-        // Handle Share Capital Data
-        if (shareCapitalResponse.status === 'fulfilled' && shareCapitalResponse.value.ok) {
-          const shareCapitalData = await shareCapitalResponse.value.json();
-          setShareCapital(typeof shareCapitalData === 'number' ? shareCapitalData : shareCapitalData?.sumTotal || shareCapitalData?.total || 0);
-        } else {
-          console.error('Failed to fetch share capital');
-          setShareCapital(0);
-        }
-        
-        // Handle Dividend Data
-        if (dividendResponse.status === 'fulfilled' && dividendResponse.value.ok) {
-          const dividendData = await dividendResponse.value.json();
-          setDividendPayable(typeof dividendData === 'number' ? dividendData : dividendData?.sumTotal || dividendData?.total || 0);
-        } else {
-          console.error('Failed to fetch dividend payable');
-          setDividendPayable(0);
-        }
-        
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        if (!localStorage.getItem('memberProfile')) {
-          setError(err.message || 'Failed to load member profile');
-        } else {
-          setError('Unable to refresh data. Showing cached data.');
-        }
-      } finally {
+    // ── DEMO LOADER ──────────────────────────────────────────
+    // Simulates a brief fetch so the loading state is visible.
+    // Replace this entire effect when reconnecting the backend.
+    const loadDemo = () => {
+      if (!SIMULATE_LOADING) {
+        setMemberData(DEMO_DATA.profile);
+        setSavings(DEMO_DATA.savings);
+        setShareCapital(DEMO_DATA.shareCapital);
+        setDividendPayable(DEMO_DATA.dividendPayable);
         setLoading(false);
+        return undefined;
       }
+
+      const timer = setTimeout(() => {
+        setMemberData(DEMO_DATA.profile);
+        setSavings(DEMO_DATA.savings);
+        setShareCapital(DEMO_DATA.shareCapital);
+        setDividendPayable(DEMO_DATA.dividendPayable);
+        setLoading(false);
+      }, 600);
+
+      return () => clearTimeout(timer);
     };
-    
-    fetchAllData();
-  }, [navigate]);
+
+    return loadDemo();
+    // ── END DEMO LOADER ──────────────────────────────────────
+  }, []);
 
   // Format date function
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       });
     } catch {
       return dateString;
@@ -180,6 +91,9 @@ const MemberProfile = () => {
   const formatCurrency = (amount) => {
     return `KES ${(amount || 0).toLocaleString()}`;
   };
+
+  // Total holdings across the three shareholder balances
+  const totalHoldings = (savings || 0) + (shareCapital || 0) + (dividendPayable || 0);
 
   // If no data at all (no cached, no fetched)
   if (!memberData && !loading) {
@@ -198,18 +112,9 @@ const MemberProfile = () => {
             background: white;
             border-radius: 12px;
           }
-          .error-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-          }
-          .profile-error h3 {
-            color: #1a202c;
-            margin-bottom: 0.5rem;
-          }
-          .profile-error p {
-            color: #718096;
-            margin-bottom: 1.5rem;
-          }
+          .error-icon { font-size: 3rem; margin-bottom: 1rem; }
+          .profile-error h3 { color: #1a202c; margin-bottom: 0.5rem; }
+          .profile-error p { color: #718096; margin-bottom: 1.5rem; }
           .retry-btn {
             background: ${brandColor};
             color: white;
@@ -219,9 +124,7 @@ const MemberProfile = () => {
             cursor: pointer;
             font-weight: 600;
           }
-          .retry-btn:hover {
-            background: #008a9a;
-          }
+          .retry-btn:hover { background: #12294C; }
         `}</style>
       </div>
     );
@@ -249,9 +152,7 @@ const MemberProfile = () => {
             animation: spin 0.8s linear infinite;
             margin: 0 auto 1rem;
           }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
+          @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
       </div>
     );
@@ -259,13 +160,20 @@ const MemberProfile = () => {
 
   return (
     <>
+      {isDemo && (
+        <div className="demo-banner">
+          <span className="demo-dot" />
+          <strong>Demo Preview</strong>
+          <span className="demo-sep">•</span>
+          <span>Showing sample shareholder data — backend not connected</span>
+        </div>
+      )}
+
       <div className="card">
         <div className="card-header">
           <h3>Personal Information</h3>
           {error && (
-            <span style={{ fontSize: '0.7rem', color: '#f39c12' }}>
-              ⚠️ {error}
-            </span>
+            <span style={{ fontSize: '0.7rem', color: '#f39c12' }}>⚠️ {error}</span>
           )}
         </div>
         <div className="card-body">
@@ -308,9 +216,7 @@ const MemberProfile = () => {
             </div>
             <div className="profile-info-item">
               <label>Member ID</label>
-              <div className="value">
-                {memberData?.id || 'N/A'}
-              </div>
+              <div className="value">{memberData?.id || 'N/A'}</div>
             </div>
             <div className="profile-info-item">
               <label>KRA PIN</label>
@@ -322,7 +228,7 @@ const MemberProfile = () => {
               <label>Status</label>
               <div className="value">
                 <span className="status-badge" style={{ backgroundColor: brandColor + '20', color: brandColor }}>
-                  ✓ Active
+                  ✓ Shareholder
                 </span>
               </div>
             </div>
@@ -370,49 +276,68 @@ const MemberProfile = () => {
 
       <div className="card" style={{ marginTop: '1.5rem' }}>
         <div className="card-header">
-          <h3>Account Summary</h3>
+          <h3>Shareholder Account Summary</h3>
         </div>
         <div className="card-body">
           <div className="profile-info-grid three-columns">
             <div className="profile-info-item">
               <label>Account Number</label>
-              <div className="value">
-                {memberData?.accNo || 'N/A'}
-              </div>
+              <div className="value">{memberData?.accNo || 'N/A'}</div>
             </div>
             <div className="profile-info-item">
               <label>Member Since</label>
               <div className="value">
-                {formatDate(memberData?.createdAt || memberData?.joinDate) || 'Information not available'}
+                {formatDate(memberData?.createdAt || memberData?.joinDate) || 'N/A'}
               </div>
             </div>
             <div className="profile-info-item">
               <label>Savings</label>
-              <div className="value financial">
-                {formatCurrency(savings)}
-              </div>
+              <div className="value financial">{formatCurrency(savings)}</div>
             </div>
             <div className="profile-info-item">
               <label>Share Capital</label>
-              <div className="value financial">
-                {formatCurrency(shareCapital)}
-              </div>
+              <div className="value financial">{formatCurrency(shareCapital)}</div>
             </div>
             <div className="profile-info-item">
               <label>Dividend Payable</label>
-              <div className="value financial">
-                {formatCurrency(dividendPayable)}
+              <div className="value financial">{formatCurrency(dividendPayable)}</div>
+            </div>
+            <div className="profile-info-item">
+              <label>Total Holdings</label>
+              <div className="value financial" style={{ color: brandAccent }}>
+                {formatCurrency(totalHoldings)}
               </div>
             </div>
           </div>
-          
+
           <div className="info-note">
-            <small>💡 Loan information will be available in the loans section.</small>
+            <small>💡 Dividends are declared annually and paid on eligible shares held during the financial year.</small>
           </div>
         </div>
       </div>
 
       <style>{`
+        .demo-banner {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          background: #FFF7E6;
+          border: 1px solid #F6C453;
+          color: #7A4F01;
+          padding: 0.6rem 1rem;
+          border-radius: 10px;
+          font-size: 0.8rem;
+          margin-bottom: 1rem;
+        }
+        .demo-banner strong { font-weight: 700; }
+        .demo-dot {
+          width: 8px; height: 8px;
+          background: #F6A700;
+          border-radius: 50%;
+          box-shadow: 0 0 0 3px rgba(246,167,0,0.25);
+        }
+        .demo-sep { opacity: 0.5; }
+
         .card {
           background: white;
           border-radius: 12px;
@@ -420,7 +345,6 @@ const MemberProfile = () => {
           overflow: hidden;
           margin-bottom: 1rem;
         }
-
         .card-header {
           display: flex;
           justify-content: space-between;
@@ -429,33 +353,16 @@ const MemberProfile = () => {
           border-bottom: 1px solid #e2e8f0;
           background: #f8fafc;
         }
-
         .card-header h3 {
           margin: 0;
           font-size: 0.9rem;
           font-weight: 600;
           color: #1a202c;
         }
-
-        .card-body {
-          padding: 1.25rem;
-        }
-
-        .profile-info-grid {
-          display: grid;
-          gap: 1.5rem;
-        }
-
-        .profile-info-grid.three-columns {
-          grid-template-columns: repeat(3, 1fr);
-        }
-
-        .profile-info-item {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
+        .card-body { padding: 1.25rem; }
+        .profile-info-grid { display: grid; gap: 1.5rem; }
+        .profile-info-grid.three-columns { grid-template-columns: repeat(3, 1fr); }
+        .profile-info-item { display: flex; flex-direction: column; gap: 0.5rem; }
         .profile-info-item label {
           font-size: 0.7rem;
           font-weight: 600;
@@ -463,7 +370,6 @@ const MemberProfile = () => {
           letter-spacing: 0.5px;
           color: #718096;
         }
-
         .profile-info-item .value {
           font-size: 1rem;
           color: #1a202c;
@@ -472,12 +378,10 @@ const MemberProfile = () => {
           border-bottom: 2px solid #e2e8f0;
           word-break: break-word;
         }
-
         .profile-info-item .value.financial {
           color: ${brandColor};
           font-weight: 700;
         }
-
         .status-badge {
           display: inline-block;
           padding: 0.25rem 0.75rem;
@@ -485,31 +389,21 @@ const MemberProfile = () => {
           font-size: 0.875rem;
           font-weight: 600;
         }
-
         .info-note {
           margin-top: 1rem;
           padding: 0.75rem;
-          background: #ebf8ff;
+          background: #EEF3FA;
           border-radius: 8px;
-          color: #2c5282;
+          color: #1B3A6B;
           font-size: 0.75rem;
           text-align: center;
         }
-
         @media (max-width: 992px) {
-          .profile-info-grid.three-columns {
-            grid-template-columns: repeat(2, 1fr);
-          }
+          .profile-info-grid.three-columns { grid-template-columns: repeat(2, 1fr); }
         }
-
         @media (max-width: 768px) {
-          .profile-info-grid.three-columns {
-            grid-template-columns: 1fr;
-          }
-          
-          .card-body {
-            padding: 1rem;
-          }
+          .profile-info-grid.three-columns { grid-template-columns: 1fr; }
+          .card-body { padding: 1rem; }
         }
       `}</style>
     </>

@@ -1,4 +1,4 @@
-// GuarantorList.js - Fixed JSX syntax error
+// GuarantorList.js - TMG Foundation themed
 import React, { useRef, useState, useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -12,15 +12,21 @@ function GuarantorList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [headerData, setHeaderData] = useState(null);
-  const brandColor = '#00a3b5';
 
-  // Process guarantor data from API response - updated to match exact backend structure
+  // --- TMG FOUNDATION BRAND COLORS ---
+  const colors = {
+    primary: '#1B3A6B',
+    primaryDark: '#12294C',
+    accent: '#E31E24',
+    accentDark: '#C4181D',
+    softBlue: '#EEF3FA',
+    softRed: '#FDECEC',
+  };
+  const brandColor = colors.primary;
+
   const processGuarantorData = (data) => {
-    console.log('Processing guarantor data:', data);
-    
     let guarantors = [];
-    
-    // Handle the exact response structure from your backend
+
     if (data && data.data && Array.isArray(data.data)) {
       guarantors = data.data;
     } else if (Array.isArray(data)) {
@@ -30,7 +36,7 @@ function GuarantorList() {
       else if (data.guarantorList) guarantors = data.guarantorList;
       else if (data.guarantorDetails) guarantors = data.guarantorDetails;
     }
-    
+
     const formattedGuarantors = guarantors.map((item, index) => ({
       id: item.id || index,
       curDate: item.curDate || item.inputDate || item.date || 'N/A',
@@ -42,21 +48,20 @@ function GuarantorList() {
       outstanding: parseFloat(item.outstanding || item.loanBalance || item.balance || 0),
       guarantorType: item.guarantorType || item.level || item.guarantorLevel || 'N/A'
     }));
-    
+
     setGuarantorData(formattedGuarantors);
-    
+
     const totalLoanAmount = formattedGuarantors.reduce((sum, g) => sum + g.lamount, 0);
     const totalAmountGuaranteed = formattedGuarantors.reduce((sum, g) => sum + g.amountGuaranteed, 0);
     const totalOutstanding = formattedGuarantors.reduce((sum, g) => sum + g.outstanding, 0);
-    
+
     setTotals({
-      totalLoanAmount: totalLoanAmount,
-      totalAmountGuaranteed: totalAmountGuaranteed,
-      totalOutstanding: totalOutstanding
+      totalLoanAmount,
+      totalAmountGuaranteed,
+      totalOutstanding
     });
   };
 
-  // Fetch header configuration
   const fetchHeaderConfig = async (token) => {
     try {
       const response = await fetch('/api/v1/header/1', {
@@ -66,48 +71,52 @@ function GuarantorList() {
           'Authorization': `Bearer ${token}`
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        console.log('Header config:', data);
         setHeaderData(data);
         return data;
       }
     } catch (err) {
       console.error('Error fetching header config:', err);
     }
-    return null;
+    const fallbackHeader = {
+      organisationName: 'THE METRO GROUP FOUNDATION',
+      boxNo: '808',
+      postalCode: '00515, Buru Buru Nairobi',
+      mainTelNo: '0785278786 or 0705767392',
+      email: 'info@tmgfoundation.org'
+    };
+    setHeaderData(fallbackHeader);
+    return fallbackHeader;
   };
 
-  // Main data fetch - with immediate cached data
   useEffect(() => {
-    // First, try to load cached data immediately
     const cachedGuarantors = localStorage.getItem('guarantorTransactions');
     const cachedMember = localStorage.getItem('memberProfile');
-    
+
     if (cachedGuarantors) {
       try {
         const parsed = JSON.parse(cachedGuarantors);
         setGuarantorData(parsed.guarantors || []);
         setTotals(parsed.totals || { totalLoanAmount: 0, totalAmountGuaranteed: 0, totalOutstanding: 0 });
         setLoading(false);
-      } catch(e) {}
+      } catch (e) {}
     }
-    
+
     if (cachedMember) {
       try {
         setMemberData(JSON.parse(cachedMember));
-      } catch(e) {}
+      } catch (e) {}
     }
 
     const fetchData = async () => {
       setError('');
-      
+
       try {
-        // Get authentication token
         let token = localStorage.getItem('authToken');
         let memberNumber = localStorage.getItem('memberNumber');
-        
+
         if (!token) {
           const storedMemberData = localStorage.getItem('memberData');
           if (storedMemberData) {
@@ -116,25 +125,21 @@ function GuarantorList() {
             memberNumber = memberNumber || parsed.accNo || parsed.memberNo;
           }
         }
-        
+
         if (!token) {
           setError('Authentication required. Please login again.');
           setLoading(false);
           return;
         }
-        
+
         if (!memberNumber) {
           setError('Member number not found. Please login again.');
           setLoading(false);
           return;
         }
-        
-        console.log('Fetching data for member:', memberNumber);
-        
-        // Fetch header configuration
+
         await fetchHeaderConfig(token);
-        
-        // Fetch member data
+
         const memberResponse = await fetch(`/api/v1/member/${memberNumber}`, {
           method: 'GET',
           headers: {
@@ -142,10 +147,9 @@ function GuarantorList() {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+
         if (memberResponse.ok) {
           const member = await memberResponse.json();
-          console.log('Member data:', member);
           setMemberData(member);
           localStorage.setItem('memberProfile', JSON.stringify(member));
         } else {
@@ -156,8 +160,7 @@ function GuarantorList() {
             setError('Failed to fetch member data');
           }
         }
-        
-        // Fetch guarantor data
+
         const guarantorResponse = await fetch(`/api/v1/guarantor/${memberNumber}`, {
           method: 'GET',
           headers: {
@@ -165,16 +168,14 @@ function GuarantorList() {
             'Authorization': `Bearer ${token}`
           }
         });
-        let guarantorData = null;
+        let guarantorDataRes = null;
 
         if (guarantorResponse && guarantorResponse.ok) {
-          guarantorData = await guarantorResponse.json();
-          console.log('Guarantor data received:', guarantorData);
-          
-          if (guarantorData && (guarantorData.data?.length > 0 || (Array.isArray(guarantorData) && guarantorData.length > 0))) {
-            processGuarantorData(guarantorData);
-            // Cache the guarantor data
-            const currentGuarantors = { guarantors: guarantorData, totals: totals };
+          guarantorDataRes = await guarantorResponse.json();
+
+          if (guarantorDataRes && (guarantorDataRes.data?.length > 0 || (Array.isArray(guarantorDataRes) && guarantorDataRes.length > 0))) {
+            processGuarantorData(guarantorDataRes);
+            const currentGuarantors = { guarantors: guarantorDataRes, totals };
             localStorage.setItem('guarantorTransactions', JSON.stringify(currentGuarantors));
           } else {
             setError('There are no guarantor records available for this member right now.');
@@ -182,11 +183,11 @@ function GuarantorList() {
             setTotals({ totalLoanAmount: 0, totalAmountGuaranteed: 0, totalOutstanding: 0 });
           }
         } else {
-            setError('We could not find any guarantor data for this member right now.');
+          setError('We could not find any guarantor data for this member right now.');
           setGuarantorData([]);
           setTotals({ totalLoanAmount: 0, totalAmountGuaranteed: 0, totalOutstanding: 0 });
         }
-        
+
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('Network error. Unable to fetch guarantor data.');
@@ -196,7 +197,7 @@ function GuarantorList() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, []);
 
@@ -216,7 +217,6 @@ function GuarantorList() {
     pdf.save(`guarantor-statement-${memberData?.accNo || 'member'}-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
-  // Show minimal loading only if no data at all
   if (loading && !memberData && guarantorData.length === 0) {
     return (
       <div className="loading-container">
@@ -255,11 +255,9 @@ function GuarantorList() {
 
   return (
     <>
-      {/* Report Content */}
       <div ref={reportRef} className="report-container">
-        {/* Header */}
         <div className="report-header">
-          <h1>{headerData?.organisationName || 'METROPOLITAN HOSPITAL SACCO LTD'}</h1>
+          <h1>{headerData?.organisationName || 'THE METRO GROUP FOUNDATION'}</h1>
           <p>Guarantor Statement</p>
           {headerData && (
             <div className="contact-info">
@@ -273,7 +271,6 @@ function GuarantorList() {
           </p>
         </div>
 
-        {/* Member Information */}
         <div className="member-section">
           <table className="info-table">
             <tbody>
@@ -299,7 +296,6 @@ function GuarantorList() {
           </table>
         </div>
 
-        {/* Guarantor Table - Updated columns matching backend */}
         <div className="table-section">
           <table className="report-table">
             <thead>
@@ -324,7 +320,7 @@ function GuarantorList() {
                     <td className="name-cell"><strong>{item.memberName}</strong></td>
                     <td className="amount"><strong>{item.lamount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                     <td className="amount"><strong>{item.amountGuaranteed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
-                    <td className="amount"><strong>{item.outstanding.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                    <td className="amount outstanding-cell"><strong>{item.outstanding.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                     <td className="center"><strong className="level-badge">{item.guarantorType}</strong></td>
                   </tr>
                 ))
@@ -353,22 +349,19 @@ function GuarantorList() {
           </table>
         </div>
 
-        {/* Footer Note */}
         <div className="report-footer">
           <p><strong>Note:</strong> This guarantor statement shows all loans you have guaranteed for other members.</p>
           <p>Please ensure you understand your obligations as a guarantor.</p>
-          <p>For any queries, please contact the Sacco office.</p>
+          <p>For any queries, please contact the office at {headerData?.email || 'info@tmgfoundation.org'}.</p>
         </div>
       </div>
 
-      {/* Download Button */}
       <div className="download-section">
         <button onClick={handleDownloadPDF} className="download-btn" disabled={guarantorData.length === 0}>
           📄 Download PDF Statement
         </button>
       </div>
 
-      {/* Error Message */}
       {error && (
         <div style={{ maxWidth: '1400px', margin: '1rem auto' }}>
           <Alert type="warning">
@@ -381,9 +374,9 @@ function GuarantorList() {
         .report-container {
           background: white;
           padding: 2rem;
-          border-radius: 8px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          font-family: 'Courier New', 'Monaco', monospace;
+          border-radius: 16px;
+          box-shadow: 0 4px 16px rgba(18, 41, 76, 0.06);
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           max-width: 1400px;
           margin: 0 auto;
           transform: translateZ(0);
@@ -395,29 +388,28 @@ function GuarantorList() {
           text-align: center;
           margin-bottom: 2rem;
           padding-bottom: 1rem;
-          border-bottom: 2px solid #000;
+          border-bottom: 2px solid ${colors.primary};
         }
 
         .report-header h1 {
           font-size: 1.25rem;
-          font-weight: bold;
+          font-weight: 800;
           margin: 0;
-          letter-spacing: 1px;
-          color: #000;
+          letter-spacing: 0.3px;
+          color: ${colors.primary};
         }
 
         .report-header p {
-          font-size: 1rem;
+          font-size: 0.95rem;
           margin: 0.25rem 0 0;
-          color: #000;
-          font-weight: bold;
+          color: #4a5568;
+          font-weight: 600;
         }
 
         .contact-info {
-          font-size: 0.7rem;
-          color: #333;
+          font-size: 0.72rem;
+          color: #718096;
           margin-top: 0.5rem;
-          font-weight: bold;
         }
 
         .info-table {
@@ -428,25 +420,25 @@ function GuarantorList() {
         }
 
         .info-table td {
-          padding: 0.75rem;
-          border: 1px solid #000;
+          padding: 0.6rem 0.75rem;
+          border: 1px solid #e2e8f0;
         }
 
         .info-label {
-          font-weight: bold;
-          background-color: #f0f0f0;
+          font-weight: 700;
+          background-color: ${colors.softBlue};
           width: 100px;
-          color: #000;
+          color: ${colors.primary};
         }
 
         .info-value {
-          color: #000;
+          color: #1a202c;
           font-weight: 500;
         }
 
         .info-value strong {
-          font-weight: 800;
-          color: #000;
+          font-weight: 700;
+          color: #1a202c;
         }
 
         .table-section {
@@ -457,24 +449,35 @@ function GuarantorList() {
         .report-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 0.75rem;
+          font-size: 0.78rem;
         }
 
         .report-table th {
-          border: 2px solid #000;
-          padding: 0.75rem;
-          text-align: center;
-          font-weight: 800;
-          background: #f0f0f0;
-          color: #000;
-          font-size: 0.8rem;
+          border: 1px solid rgba(27, 58, 107, 0.15);
+          padding: 0.75rem 0.6rem;
+          text-align: left;
+          font-weight: 700;
+          background: ${colors.primary};
+          color: white;
+          font-size: 0.72rem;
+          letter-spacing: 0.3px;
+          white-space: nowrap;
         }
 
         .report-table td {
-          border: 1px solid #000;
+          border: 1px solid #e2e8f0;
           padding: 0.6rem;
-          color: #000;
+          color: #1a202c;
           font-weight: 500;
+          background: white;
+        }
+
+        .report-table tbody tr:nth-child(even) td {
+          background: #fafbfd;
+        }
+
+        .report-table tbody tr:hover td {
+          background: ${colors.softBlue};
         }
 
         .report-table td.amount {
@@ -484,8 +487,8 @@ function GuarantorList() {
         }
 
         .report-table td strong {
-          font-weight: 800;
-          color: #000;
+          font-weight: 700;
+          color: #1a202c;
         }
 
         .report-table td.center {
@@ -498,13 +501,24 @@ function GuarantorList() {
           font-weight: 600;
         }
 
+        .report-table td.outstanding-cell {
+          color: ${colors.accent};
+          font-weight: 700;
+        }
+
+        .report-table td.outstanding-cell strong {
+          color: ${colors.accent};
+        }
+
         .level-badge {
           display: inline-block;
-          padding: 0.2rem 0.5rem;
-          border-radius: 4px;
+          padding: 0.2rem 0.55rem;
+          border-radius: 6px;
           font-weight: 700;
-          background: #f0f0f0;
-          color: #000;
+          background: ${colors.softRed};
+          color: ${colors.accent};
+          font-size: 0.68rem;
+          letter-spacing: 0.3px;
         }
 
         .empty-state {
@@ -516,14 +530,14 @@ function GuarantorList() {
           min-height: 120px;
           text-align: center;
           color: #374151;
-          background: #f9fafb;
-          border: 1px dashed #cbd5e1;
-          border-radius: 8px;
+          background: ${colors.softBlue};
+          border: 1px dashed rgba(27, 58, 107, 0.3);
+          border-radius: 10px;
           padding: 1.25rem;
         }
 
         .empty-state strong {
-          color: #111827;
+          color: ${colors.primary};
           font-size: 0.95rem;
         }
 
@@ -532,25 +546,22 @@ function GuarantorList() {
           line-height: 1.5;
         }
 
-        .total-row {
-          background: #f0f0f0;
-          font-weight: 800;
-        }
-
         .total-row td {
+          background: ${colors.softBlue} !important;
           font-weight: 800;
-          border-top: 2px solid #000;
-          border-bottom: 2px solid #000;
-          color: #000;
+          border-top: 2px solid ${colors.primary};
+          border-bottom: 2px solid ${colors.primary};
+          color: ${colors.primary};
         }
 
         .report-footer {
           margin-top: 2rem;
           padding-top: 1rem;
-          border-top: 1px solid #000;
+          border-top: 1px solid #e2e8f0;
           text-align: center;
-          font-size: 0.7rem;
-          color: #333;
+          font-size: 0.72rem;
+          color: #64748b;
+          line-height: 1.6;
         }
 
         .report-footer p {
@@ -560,7 +571,7 @@ function GuarantorList() {
 
         .report-footer p strong {
           font-weight: 800;
-          color: #000;
+          color: ${colors.primary};
         }
 
         .download-section {
@@ -571,20 +582,20 @@ function GuarantorList() {
 
         .download-btn {
           padding: 0.75rem 2rem;
-          background: ${brandColor};
+          background: linear-gradient(135deg, ${colors.primary}, ${colors.primaryDark});
           color: white;
           border: none;
-          border-radius: 8px;
-          font-size: 1rem;
-          font-weight: 600;
+          border-radius: 10px;
+          font-size: 0.9rem;
+          font-weight: 700;
           cursor: pointer;
           transition: all 0.2s;
+          box-shadow: 0 6px 16px rgba(27, 58, 107, 0.25);
         }
 
         .download-btn:hover:not(:disabled) {
-          background: #008a9a;
           transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 163, 181, 0.3);
+          box-shadow: 0 10px 22px rgba(27, 58, 107, 0.35);
         }
 
         .download-btn:disabled {
@@ -596,17 +607,17 @@ function GuarantorList() {
           .download-section {
             display: none;
           }
-          
+
           .report-container {
             padding: 0;
             box-shadow: none;
           }
-          
+
           .report-table th,
           .report-table td {
             border: 1px solid #000 !important;
           }
-          
+
           .error-message {
             display: none;
           }
@@ -616,21 +627,21 @@ function GuarantorList() {
           .report-container {
             padding: 1rem;
           }
-          
+
           .report-table {
             font-size: 0.65rem;
           }
-          
+
           .report-table th,
           .report-table td {
             padding: 0.4rem;
           }
-          
+
           .info-table td {
             display: block;
             width: 100%;
           }
-          
+
           .info-label {
             width: auto;
           }

@@ -11,7 +11,9 @@ import {
   FaChartLine,
   FaWallet,
   FaBars,
-  FaChevronDown
+  FaChevronDown,
+  FaSignOutAlt,
+  FaHeart
 } from 'react-icons/fa';
 import Dashboard from './components/Dashboard';
 import MemberProfile from './components/MemberProfile';
@@ -34,6 +36,17 @@ import logo from './log.png';
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
 const ABSOLUTE_SESSION_MS = 60 * 60 * 1000;
+
+// --- TMG FOUNDATION BRAND COLORS ---
+const TMG = {
+  primary: '#1B3A6B',
+  primaryDark: '#12294C',
+  primaryLight: '#2A5091',
+  accent: '#E31E24',
+  accentDark: '#C4181D',
+  softBlue: '#EEF3FA',
+  softRed: '#FDECEC',
+};
 
 const clearSession = () => {
   [
@@ -64,6 +77,9 @@ const isSessionExpired = () => {
   return Date.now() - loginTimestamp > ABSOLUTE_SESSION_MS;
 };
 
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
 const Sidebar = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -71,14 +87,8 @@ const Sidebar = ({ isOpen, onClose }) => {
   const menuItems = [
     { path: '/', label: 'Dashboard', icon: FaChartPie },
     { path: '/profile', label: 'Member Profile', icon: FaUserCircle },
-    { path: '/apply-loan', label: 'Instant Loan', icon: FaHandHoldingUsd },
     { path: '/dividends', label: 'Dividends', icon: FaCoins },
-    { path: '/loan-statement', label: 'Loan Statement', icon: FaFileInvoiceDollar },
-    { path: '/guarantors', label: 'Guarantors', icon: FaUserFriends },
     { path: '/share-capital', label: 'Share Capital', icon: FaUniversity },
-    { path: '/share-statement', label: 'Savings Statement', icon: FaChartLine },
-    { path: '/withdrawable', label: 'Withdrawable Statement', icon: FaWallet },
-    { path: '/deposit', label: 'Deposit via M-Pesa', icon: FaWallet },
   ];
 
   const handleNavigation = (path) => {
@@ -86,37 +96,71 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (window.innerWidth <= 768) onClose();
   };
 
+  const handleLogout = () => {
+    clearSession();
+    navigate('/login');
+    window.location.reload();
+  };
+
   return (
     <>
       {isOpen && <div className="sidebar-overlay" onClick={onClose}></div>}
 
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div className="sidebar-header">
-          <img src={logo} alt="Sacco Logo" className="logo-image" />
-          <p className="sidebar-kicker">Member Portal</p>
+        {/* Brand block — logo only */}
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-logo-wrap">
+            <img src={logo} alt="TMG Foundation" className="sidebar-brand-logo" />
+          </div>
         </div>
 
+        {/* Nav */}
         <nav className="nav-menu" aria-label="Main navigation">
+          <span className="nav-section-label">Menu</span>
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const isActive = location.pathname === item.path;
             return (
-            <button
-              type="button"
-              key={item.path}
-              className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-              onClick={() => handleNavigation(item.path)}
-            >
-              <span className="nav-icon"><Icon /></span>
-              <span>{item.label}</span>
-            </button>
-          );
+              <button
+                type="button"
+                key={item.path}
+                className={`nav-item ${isActive ? 'active' : ''}`}
+                onClick={() => handleNavigation(item.path)}
+              >
+                <span className="nav-icon"><Icon /></span>
+                <span className="nav-label">{item.label}</span>
+                {isActive && <span className="nav-active-dot" />}
+              </button>
+            );
           })}
+
+          {/* Divider + Logout */}
+          <div className="nav-divider" />
+          <button
+            type="button"
+            className="nav-item nav-item-logout"
+            onClick={handleLogout}
+          >
+            <span className="nav-icon"><FaSignOutAlt /></span>
+            <span className="nav-label">Log out</span>
+          </button>
         </nav>
+
+        {/* Footer */}
+        <div className="sidebar-footer">
+          <div className="sidebar-footer-tagline">
+            <FaHeart className="sidebar-footer-heart" />
+            <span>Building a stronger community, together.</span>
+          </div>
+        </div>
       </aside>
     </>
   );
 };
 
+/* ============================================================
+   TOP BAR
+   ============================================================ */
 const TopBar = ({ onMenuToggle }) => {
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState('');
@@ -190,7 +234,7 @@ const TopBar = ({ onMenuToggle }) => {
     '/share-capital': 'Share Capital',
     '/share-statement': 'Savings Statement',
     '/withdrawable': 'Withdrawable Statement',
-    '/deposit': 'Deposit via M-Pesa'
+    '/deposit': 'Deposit via M-Pesa',
   };
 
   const getFirstName = () => {
@@ -217,20 +261,19 @@ const TopBar = ({ onMenuToggle }) => {
         <button className="mobile-menu-toggle" onClick={onMenuToggle} type="button" aria-label="Open menu">
           <FaBars />
         </button>
-        <div>
+        <div className="top-bar-title-block">
           <div className="page-title">{pageTitles[window.location.pathname] || 'Dashboard'}</div>
           <div className="page-subtitle">
             <span>Home</span>
-            <span>/</span>
-            <span>{pageTitles[window.location.pathname] || 'Dashboard'}</span>
-            <span className="greeting-divider">�</span>
+            <span className="page-subtitle-sep">/</span>
+            <span className="page-subtitle-current">{pageTitles[window.location.pathname] || 'Dashboard'}</span>
+            <span className="greeting-divider">•</span>
             <strong>{getGreeting()}, {getFirstName()}</strong>
           </div>
         </div>
       </div>
 
       <div className="header-right">
-
         <div className="datetime" aria-label="Current date and time">
           <div className="time">{currentTime}</div>
           <div className="date">{currentDate}</div>
@@ -258,14 +301,15 @@ const TopBar = ({ onMenuToggle }) => {
                 <div className="user-avatar-lg">{userInitials}</div>
                 <div>
                   <strong>{userName}</strong>
-                  <span>{accountNo ? `Member ${accountNo}` : 'Sacco member'}</span>
+                  <span>{accountNo ? `Member ${accountNo}` : 'TMG Member'}</span>
                 </div>
               </div>
+              <div className="user-menu-divider" />
               <button type="button" onClick={() => { setMenuOpen(false); navigate('/profile'); }}>
-                View profile
+                <FaUserCircle /> View profile
               </button>
               <button type="button" onClick={handleLogout} className="logout-menu-btn">
-                Log out
+                <FaSignOutAlt /> Log out
               </button>
             </div>
           )}
@@ -275,6 +319,9 @@ const TopBar = ({ onMenuToggle }) => {
   );
 };
 
+/* ============================================================
+   MAIN LAYOUT
+   ============================================================ */
 const MainLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -300,6 +347,9 @@ const MainLayout = ({ children }) => {
   );
 };
 
+/* ============================================================
+   APP
+   ============================================================ */
 function App() {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -440,5 +490,3 @@ function App() {
 }
 
 export default App;
-
-

@@ -20,6 +20,16 @@ const CreateAccount = () => {
   const [loading, setLoading] = useState(false);
   const [showOtpField, setShowOtpField] = useState(false);
 
+  // --- UPDATED COLORS BASED ON TMG LOGO ---
+  // TMG Red: #E31E24
+  // TMG Dark Blue: #1B3A6B
+  const colors = {
+    primary: '#1B3A6B',      // Dark Blue (Main brand color)
+    primaryDark: '#142C52',  // Darker blue for gradients/hover
+    accent: '#E31E24',       // Red (For highlights/errors)
+    accentHover: '#C4181D',  // Darker Red for hover
+  };
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
@@ -286,7 +296,8 @@ const CreateAccount = () => {
           justify-content: center;
           align-items: center;
           min-height: 100vh;
-          background: #00a3b5;
+          /* Changed from Teal to TMG Blue Gradient */
+          background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
           padding: 1rem;
         }
 
@@ -316,7 +327,8 @@ const CreateAccount = () => {
         .login-header {
           text-align: center;
           padding: 1rem 2rem;
-          background: #00a3b5;
+          /* Changed to TMG Blue Gradient */
+          background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
         }
 
         .login-header h2 {
@@ -353,7 +365,8 @@ const CreateAccount = () => {
 
         .form-label.required::after {
           content: '*';
-          color: #e74c3c;
+          /* Changed to TMG Red */
+          color: ${colors.accent};
           margin-left: 4px;
         }
 
@@ -368,8 +381,9 @@ const CreateAccount = () => {
 
         .form-control:focus {
           outline: none;
-          border-color: #00a3b5;
-          box-shadow: 0 0 0 3px rgba(0, 163, 181, 0.1);
+          /* Changed to TMG Blue */
+          border-color: ${colors.primary};
+          box-shadow: 0 0 0 3px rgba(27, 58, 107, 0.1);
         }
 
         .form-control:disabled {
@@ -380,17 +394,20 @@ const CreateAccount = () => {
         .login-btn {
           width: 100%;
           padding: 0.75rem;
-          background: #00a3b5;
+          /* Changed to TMG Blue */
+          background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%);
           color: white;
           border: none;
           border-radius: 8px;
           font-size: 0.875rem;
           font-weight: 600;
           cursor: pointer;
+          transition: all 0.2s;
         }
 
         .login-btn:hover:not(:disabled) {
-          background: #008a9a;
+          /* Slightly darker blue on hover */
+          background: ${colors.primaryDark};
         }
 
         .login-btn:disabled {
@@ -407,7 +424,8 @@ const CreateAccount = () => {
         }
         
         .back-link {
-          color: #00a3b5;
+          /* Changed to TMG Blue */
+          color: ${colors.primary};
           font-size: 0.8rem;
           cursor: pointer;
           font-weight: 500;
