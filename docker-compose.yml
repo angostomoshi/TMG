@@ -19,10 +19,10 @@ services:
       - "3023:3023"
     environment:
       # You can override these variables when running on the live server
-      - DB_HOST=192.168.4.10
+      - DB_HOST=192.168.4.7
       - DB_PORT=5432
-      - DB_NAME=metrosacco
+      - DB_NAME=metrohealth_services
       - DB_USER=centre
-      - DB_PASSWORD=centre123
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD environment variable is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
     restart: unless-stopped

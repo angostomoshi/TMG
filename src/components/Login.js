@@ -38,39 +38,34 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
 
     setLoading(true);
 
-    // --- DEMO MODE: Simulate a successful login without a backend ---
-    setTimeout(() => {
-      const demoName = `Member ${memberNumber.trim()}`;
-      const demoAccount = memberNumber.trim();
-      const demoInitials = demoAccount.substring(0, 2).toUpperCase();
-
-      localStorage.setItem('memberNumber', demoAccount);
+    try {
+      const response = await fetch('/api/v1/auth/authenticate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberNo: memberNumber.trim(), password }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.token) throw new Error(data.message || 'Unable to sign in.');
+      const account = data.memberNo;
+      const name = data.holdersName || `Member ${account}`;
+      ['dashboardMetrics','shareTransactions','savingsTransactions','dividendTransactions','memberProfile','userData'].forEach(key => localStorage.removeItem(key));
+      localStorage.setItem('memberNumber', account);
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('loginTimestamp', String(Date.now()));
-      localStorage.setItem('authToken', 'demo-token-' + Date.now());
-      localStorage.setItem('holdersName', demoName);
-      localStorage.setItem('userName', demoName);
-      localStorage.setItem('accountNo', demoAccount);
-      localStorage.setItem('userInitials', demoInitials);
-      localStorage.setItem('memberId', 'DEMO-' + demoAccount);
-
-      const demoMemberData = {
-        data: {
-          holders_name: demoName,
-          acc_no: demoAccount,
-          id_no: 'DEMO-' + demoAccount,
-        },
-      };
-      localStorage.setItem('memberData', JSON.stringify(demoMemberData));
-
-      setLoading(false);
-
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('proxyAuthToken', data.proxyToken || data.token);
+      localStorage.setItem('holdersName', name);
+      localStorage.setItem('userName', name);
+      localStorage.setItem('accountNo', account);
+      localStorage.setItem('userInitials', name.split(' ').map(part => part[0]).join('').slice(0, 2));
+      localStorage.setItem('memberData', JSON.stringify({ accNo: account, memberNo: account, holdersName: name }));
       if (onLogin) {
-        onLogin(demoMemberData);
+        await onLogin(data);
       } else {
         navigate('/');
       }
-    }, 600);
+    } catch (error) {
+      setError(error.message || 'Unable to reach the server. Please try again.');
+    } finally { setLoading(false); }
   };
 
   const styles = {

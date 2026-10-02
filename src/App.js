@@ -22,6 +22,7 @@ import DividendList from './components/DividendList';
 import LoanStatement from './components/LoanStatement';
 import GuarantorList from './components/GuarantorList';
 import ShareCapital from './components/ShareCapital';
+import ShareMarket from './components/ShareMarketConnected';
 import ShareStatement from './components/ShareStatement';
 import WithdrawableStmt from './components/WithdrawableStmt';
 import DepositMpesa from './components/DepositMpesa';
@@ -89,6 +90,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/profile', label: 'Member Profile', icon: FaUserCircle },
     { path: '/dividends', label: 'Dividends', icon: FaCoins },
     { path: '/share-capital', label: 'Share Capital', icon: FaUniversity },
+    { path: '/share-market', label: 'Share Market', icon: FaChartLine },
   ];
 
   const handleNavigation = (path) => {
@@ -471,6 +473,7 @@ function App() {
           <Route path="/loan-statement" element={<LoanStatement />} />
           <Route path="/guarantors" element={<GuarantorList />} />
           <Route path="/share-capital" element={<ShareCapital />} />
+          <Route path="/share-market" element={<ShareMarket />} />
           <Route path="/share-statement" element={<ShareStatement />} />
           <Route path="/withdrawable" element={<WithdrawableStmt />} />
           <Route path="/deposit" element={<DepositMpesa />} />

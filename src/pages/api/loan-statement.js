@@ -94,42 +94,6 @@ export default async function handler(req, res) {
       };
     });
     
-    // If no transactions found, return sample data for testing
-    if (transactions.length === 0) {
-      console.log('No transactions found, returning sample data');
-      return res.status(200).json({
-        memberInfo: {
-          accNo: memberNo,
-          name: memberResult.rows[0].holders_name,
-          email: memberResult.rows[0].email_add,
-          phone: memberResult.rows[0].tel1
-        },
-        loanDetails: {
-          loanNo: loanNo,
-          amount: 50000,
-          balance: 25000
-        },
-        transactions: [
-          {
-            date: '2024-03-24',
-            receiptNo: 'DSB001',
-            description: 'Loan Disbursement',
-            debit: 50000,
-            credit: 0,
-            balance: 50000
-          },
-          {
-            date: '2024-04-24',
-            receiptNo: 'PAY001',
-            description: 'Monthly Payment',
-            debit: 0,
-            credit: 5000,
-            balance: 45000
-          }
-        ]
-      });
-    }
-    
     // Return real data
     res.status(200).json({
       success: true,

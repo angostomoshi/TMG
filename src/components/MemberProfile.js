@@ -1,38 +1,11 @@
-// MemberProfile.js — DEMO MODE (no backend)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Alert from './Alert';
-
-// ─────────────────────────────────────────────────────────────
-// DEMO DATA — remove this block when reconnecting the backend
-// ─────────────────────────────────────────────────────────────
-const SIMULATE_LOADING = true; // set false for instant render
-const DEMO_DATA = {
-  profile: {
-    holdersName: 'Jane Wanjiku Mwangi',
-    accNo: 'TMG-004821',
-    memberNo: 'TMG-004821',
-    idNo: '28471935',
-    emailAdd: 'jane.mwangi@example.co.ke',
-    tel1: '+254 712 345 678',
-    postalAddress: 'P.O. Box 1420-00100, Nairobi',
-    id: '4821',
-    kraPin: 'A012345678Z',
-    createdAt: '2019-03-14T00:00:00.000Z',
-    nok1: 'Peter Mwangi (Spouse) — +254 722 111 222',
-    nok2: 'Grace Njeri (Daughter) — +254 733 444 555',
-    nok3: 'Samuel Otieno (Brother) — +254 701 777 888',
-  },
-  savings: 248500,
-  shareCapital: 120000,
-  dividendPayable: 36750,
-};
-// ─────────────────────────────────────────────────────────────
+import { portalRequest } from '../services/portalApi';
 
 const MemberProfile = () => {
   const navigate = useNavigate();
   const [memberData, setMemberData] = useState(null);
-  const [savings, setSavings] = useState(null);
   const [shareCapital, setShareCapital] = useState(null);
   const [dividendPayable, setDividendPayable] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,35 +14,26 @@ const MemberProfile = () => {
   // TMG Foundation brand colors
   const brandColor = '#1B3A6B';
   const brandAccent = '#E31E24';
-  const isDemo = true; // flip to false when wiring real data
-
   useEffect(() => {
-    // ── DEMO LOADER ──────────────────────────────────────────
-    // Simulates a brief fetch so the loading state is visible.
-    // Replace this entire effect when reconnecting the backend.
-    const loadDemo = () => {
-      if (!SIMULATE_LOADING) {
-        setMemberData(DEMO_DATA.profile);
-        setSavings(DEMO_DATA.savings);
-        setShareCapital(DEMO_DATA.shareCapital);
-        setDividendPayable(DEMO_DATA.dividendPayable);
-        setLoading(false);
-        return undefined;
-      }
-
-      const timer = setTimeout(() => {
-        setMemberData(DEMO_DATA.profile);
-        setSavings(DEMO_DATA.savings);
-        setShareCapital(DEMO_DATA.shareCapital);
-        setDividendPayable(DEMO_DATA.dividendPayable);
-        setLoading(false);
-      }, 600);
-
-      return () => clearTimeout(timer);
+    let active = true;
+    const memberNo = localStorage.getItem('memberNumber');
+    const load = async () => {
+      try {
+        if (!memberNo) throw new Error('Please sign in again.');
+        const [profile, capital, dividends] = await Promise.all([
+          portalRequest(`/member/${encodeURIComponent(memberNo)}`),
+          portalRequest(`/shareCapital/sumTotal/${encodeURIComponent(memberNo)}`),
+          portalRequest(`/dividendPayable/sumTotal/${encodeURIComponent(memberNo)}`),
+        ]);
+        if (!active) return;
+        setMemberData(profile);
+        setShareCapital(Number(capital.balance));
+        setDividendPayable(Number(dividends.balance));
+      } catch (err) { if (active) setError(err.message); }
+      finally { if (active) setLoading(false); }
     };
-
-    return loadDemo();
-    // ── END DEMO LOADER ──────────────────────────────────────
+    load();
+    return () => { active = false; };
   }, []);
 
   // Format date function
@@ -93,7 +57,7 @@ const MemberProfile = () => {
   };
 
   // Total holdings across the three shareholder balances
-  const totalHoldings = (savings || 0) + (shareCapital || 0) + (dividendPayable || 0);
+  const totalHoldings = (shareCapital || 0) + (dividendPayable || 0);
 
   // If no data at all (no cached, no fetched)
   if (!memberData && !loading) {
@@ -160,15 +124,6 @@ const MemberProfile = () => {
 
   return (
     <>
-      {isDemo && (
-        <div className="demo-banner">
-          <span className="demo-dot" />
-          <strong>Demo Preview</strong>
-          <span className="demo-sep">•</span>
-          <span>Showing sample shareholder data — backend not connected</span>
-        </div>
-      )}
-
       <div className="card">
         <div className="card-header">
           <h3>Personal Information</h3>
@@ -291,10 +246,6 @@ const MemberProfile = () => {
               </div>
             </div>
             <div className="profile-info-item">
-              <label>Savings</label>
-              <div className="value financial">{formatCurrency(savings)}</div>
-            </div>
-            <div className="profile-info-item">
               <label>Share Capital</label>
               <div className="value financial">{formatCurrency(shareCapital)}</div>
             </div>
@@ -317,27 +268,6 @@ const MemberProfile = () => {
       </div>
 
       <style>{`
-        .demo-banner {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #FFF7E6;
-          border: 1px solid #F6C453;
-          color: #7A4F01;
-          padding: 0.6rem 1rem;
-          border-radius: 10px;
-          font-size: 0.8rem;
-          margin-bottom: 1rem;
-        }
-        .demo-banner strong { font-weight: 700; }
-        .demo-dot {
-          width: 8px; height: 8px;
-          background: #F6A700;
-          border-radius: 50%;
-          box-shadow: 0 0 0 3px rgba(246,167,0,0.25);
-        }
-        .demo-sep { opacity: 0.5; }
-
         .card {
           background: white;
           border-radius: 12px;

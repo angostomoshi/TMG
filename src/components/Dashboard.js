@@ -4,7 +4,6 @@ import {
   FaCoins,
   FaFileInvoiceDollar,
   FaUniversity,
-  FaPiggyBank,
   FaArrowRight,
   FaPhoneAlt,
   FaHeart,
@@ -12,6 +11,7 @@ import {
   FaUserCog
 } from 'react-icons/fa';
 import Alert from './Alert';
+import { portalRequest } from '../services/portalApi';
 
 const CONTACT = {
   phone: '+254 114470459',
@@ -45,7 +45,6 @@ const Dashboard = ({ userData }) => {
     let mounted = true;
 
     const fetchDashboardData = async () => {
-      const token = localStorage.getItem('authToken');
       const storedMemberData = readStoredJson('memberData', {});
       const currentMemberNo = storedMemberData.accNo || storedMemberData.memberNo || localStorage.getItem('memberNumber');
 
@@ -58,29 +57,16 @@ const Dashboard = ({ userData }) => {
         return;
       }
 
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` })
-      };
-
       try {
         setMetrics((current) => ({ ...current, loading: true, notice: '' }));
-        const [profileResponse, savingsResponse, shareCapitalResponse, dividendResponse, dividendTransactionsResponse] = await Promise.allSettled([
-          fetch(`/api/v1/member/${currentMemberNo}`, { headers, credentials: 'include' }),
-          fetch(`/api/v1/savings/sumTotal/${currentMemberNo}`, { headers, credentials: 'include' }),
-          fetch(`/api/v1/shareCapital/sumTotal/${currentMemberNo}`, { headers, credentials: 'include' }),
-          fetch(`/api/v1/dividendPayable/sumTotal/${currentMemberNo}`, { headers, credentials: 'include' }),
-          fetch(`/api/v1/dividend/${currentMemberNo}`, { headers, credentials: 'include' })
+        const [nextProfile, capitalResponse, dividendResponse] = await Promise.all([
+          portalRequest(`/member/${encodeURIComponent(currentMemberNo)}`),
+          portalRequest(`/shareCapital/sumTotal/${encodeURIComponent(currentMemberNo)}`),
+          portalRequest(`/dividendPayable/sumTotal/${encodeURIComponent(currentMemberNo)}`),
         ]);
-
-        const nextProfile = await responseJson(profileResponse);
-        const savings = extractTotal(await responseJson(savingsResponse));
-        const shareCapital = extractTotal(await responseJson(shareCapitalResponse));
-        const payableDividend = extractTotal(await responseJson(dividendResponse));
-        const transactionDividend = extractDividendNetTotal(await responseJson(dividendTransactionsResponse));
-        const cachedDividend = extractCachedDividendTotal();
-        const dividend = transactionDividend ?? cachedDividend ?? payableDividend;
-        const totalHoldings = savings + shareCapital + dividend;
+        const shareCapital = Number(capitalResponse.balance);
+        const dividend = Number(dividendResponse.balance);
+        const totalHoldings = shareCapital + dividend;
 
         if (!mounted) return;
 
@@ -90,7 +76,6 @@ const Dashboard = ({ userData }) => {
         }
 
         const nextMetrics = {
-          savings,
           shareCapital,
           dividend,
           totalHoldings,
@@ -109,7 +94,8 @@ const Dashboard = ({ userData }) => {
         setMetrics((current) => ({
           ...current,
           loading: false,
-          notice: 'We could not refresh your dashboard right now. Showing the last saved figures where available.'
+          shareCapital: null, dividend: null, totalHoldings: null,
+          notice: 'We could not load your live balances. Please refresh or sign in again.'
         }));
       }
     };
@@ -135,14 +121,6 @@ const Dashboard = ({ userData }) => {
 
   const summaryCards = useMemo(() => [
     {
-      label: 'Savings Balance',
-      value: formatCurrency(metrics.savings),
-      hint: metrics.loading ? 'Refreshing deposits...' : 'Your member deposits',
-      path: '/share-statement',
-      accent: 'blue',
-      icon: FaPiggyBank
-    },
-    {
       label: 'Share Capital',
       value: formatCurrency(metrics.shareCapital),
       hint: metrics.loading ? 'Refreshing capital...' : 'Ownership contribution',
@@ -161,15 +139,15 @@ const Dashboard = ({ userData }) => {
     {
       label: 'Total Holdings',
       value: formatCurrency(metrics.totalHoldings),
-      hint: metrics.loading ? 'Calculating total...' : 'Savings + capital + dividend',
-      path: '/share-statement',
+      hint: metrics.loading ? 'Calculating total...' : 'Capital + dividend',
+      path: '/share-capital',
       accent: 'navy',
       icon: FaChartPie
     }
   ], [metrics]);
 
   const quickActions = [
-    { label: 'Download savings statement', description: 'Export a clean PDF for your records.', path: '/share-statement', icon: FaFileInvoiceDollar },
+    { label: 'Download capital statement', description: 'Export a clean PDF for your records.', path: '/share-capital', icon: FaFileInvoiceDollar },
     { label: 'Review dividend history', description: 'See declared and payable dividends by year.', path: '/dividends', icon: FaCoins },
     { label: 'Update your profile', description: 'Keep phone, email, and KYC details current.', path: '/profile', icon: FaUserCog }
   ];
@@ -191,7 +169,7 @@ const Dashboard = ({ userData }) => {
             Welcome back, <span className="tmg-name-highlight">{firstName(memberName)}</span>
           </h1>
           <p>
-            Your shareholder overview — track savings, share capital,
+            Your shareholder overview — track share capital,
             and dividends, all in one clear place.
           </p>
           <div className="tmg-hero-actions">
@@ -826,7 +804,7 @@ const Dashboard = ({ userData }) => {
 };
 
 /* ===== HELPERS ===== */
-const DASHBOARD_METRICS_CACHE_VERSION = 3;
+const DASHBOARD_METRICS_CACHE_VERSION = 4;
 
 const readStoredJson = (key, fallback) => {
   try {
@@ -837,24 +815,9 @@ const readStoredJson = (key, fallback) => {
   }
 };
 
-const readDashboardMetrics = () => {
-  const fallback = {
-    savings: 0,
-    shareCapital: 0,
-    dividend: 0,
-    totalHoldings: 0,
-    loading: true,
-    notice: ''
-  };
-  const cached = readStoredJson('dashboardMetrics', fallback);
-
-  if (cached.cacheVersion !== DASHBOARD_METRICS_CACHE_VERSION) {
-    localStorage.removeItem('dashboardMetrics');
-    return fallback;
-  }
-
-  return cached;
-};
+const readDashboardMetrics = () => ({
+  shareCapital: null, dividend: null, totalHoldings: null, loading: true, notice: ''
+});
 
 const firstName = (name) => {
   if (!name) return 'Member';
@@ -890,80 +853,8 @@ const MetricCard = ({ card, loading, onClick }) => {
   );
 };
 
-const responseJson = async (settledResponse) => {
-  if (settledResponse.status !== 'fulfilled' || !settledResponse.value.ok) return null;
-  return settledResponse.value.json();
-};
-
-const extractTotal = (data) => {
-  if (typeof data === 'number') return data;
-  if (!data || typeof data !== 'object') return 0;
-
-  const candidates = [
-    data.sumTotal,
-    data.total,
-    data.amount,
-    data.balance,
-    data.data?.sumTotal,
-    data.data?.total,
-    data.data?.amount,
-    data.data?.balance
-  ];
-
-  const found = candidates.find((value) => value !== undefined && value !== null && value !== '');
-  return Number(found || 0);
-};
-
-const extractDividendNetTotal = (data) => {
-  if (!data) return null;
-  if (typeof data === 'number') return data;
-  if (data.totals?.netDividend !== undefined) return Number(data.totals.netDividend || 0);
-  if (data.netDividend !== undefined) return Number(data.netDividend || 0);
-  if (data.netAmount !== undefined) return Number(data.netAmount || 0);
-  if (data.runningTotal !== undefined) return Number(data.runningTotal || 0);
-  if (data.balance !== undefined && !Array.isArray(data.data)) return Number(data.balance || 0);
-
-  const transactions = Array.isArray(data)
-    ? data
-    : data.dividends || data.transactions || data.data || data.records || [];
-
-  if (!Array.isArray(transactions) || transactions.length === 0) return null;
-
-  const lastWithBalance = [...transactions].reverse().find((item) => (
-    item?.runningTotal !== undefined ||
-    item?.runningAmt !== undefined ||
-    item?.netAmount !== undefined ||
-    item?.balance !== undefined
-  ));
-
-  if (lastWithBalance) {
-    return Number(
-      lastWithBalance.runningTotal ??
-      lastWithBalance.runningAmt ??
-      lastWithBalance.netAmount ??
-      lastWithBalance.balance ??
-      0
-    );
-  }
-
-  return transactions.reduce((sum, item) => {
-    const amount = Number(item?.dividend || item?.dividendAmount || item?.amount || item?.credit || 0);
-    const paid = Number(item?.paid || item?.withholdingTax || item?.tax || item?.debit || 0);
-    return sum + amount - paid;
-  }, 0);
-};
-
-const extractCachedDividendTotal = () => {
-  const cached = readStoredJson('dividendTransactions', null);
-  if (!cached) return 0;
-
-  if (cached.totals?.netDividend !== undefined) return Number(cached.totals.netDividend || 0);
-  if (cached.netDividend !== undefined) return Number(cached.netDividend || 0);
-
-  return extractDividendNetTotal(cached.transactions || cached);
-};
-
 const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined) return "Unavailable";
   const value = Number(amount || 0);
   return `KES ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };

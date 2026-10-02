@@ -1,5 +1,5 @@
 // CreateAccount.js
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../log.png';
 import Alert from './Alert';
@@ -19,6 +19,24 @@ const CreateAccount = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [showOtpField, setShowOtpField] = useState(false);
+  const otpInputRef = useRef(null);
+
+  useEffect(() => {
+    if (showOtpField) {
+      otpInputRef.current?.focus();
+      otpInputRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    }
+  }, [showOtpField]);
+
+  const resumeOtp = () => {
+    if (!formData.memberNo.trim() || !formData.mobileNo.trim()) {
+      setError('Enter your shareholder number and registered mobile number first.');
+      return;
+    }
+    setError('');
+    setSuccess('Enter the code you received. If it has expired, request a new OTP.');
+    setShowOtpField(true);
+  };
 
   // --- UPDATED COLORS BASED ON TMG LOGO ---
   // TMG Red: #E31E24
@@ -44,10 +62,6 @@ const CreateAccount = () => {
     }
     if (!formData.mobileNo.trim()) {
       setError('Please enter the mobile number linked to your membership.');
-      return;
-    }
-    if (!formData.email.trim()) {
-      setError('Please enter your email address.');
       return;
     }
     
@@ -78,7 +92,6 @@ const CreateAccount = () => {
       setShowOtpField(true);
       setSuccess(data.message || 'OTP sent successfully. Please check your email or phone number for the code.');
       
-      setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message || 'We could not send the OTP right now.');
     } finally {
@@ -100,13 +113,9 @@ const CreateAccount = () => {
       return;
     }
     
-    if (!formData.email.trim()) {
-      setError('Please enter your email address.');
-      return;
-    }
     
-    if (!formData.otp.trim()) {
-      setError('Please enter the OTP sent to your email.');
+    if (!/^\d{6}$/.test(formData.otp.trim())) {
+      setError('Please enter the six-digit OTP sent to your registered mobile.');
       return;
     }
     
@@ -115,8 +124,8 @@ const CreateAccount = () => {
       return;
     }
     
-    if (formData.password.length < 4) {
-      setError('Your password should be at least 4 characters.');
+    if (formData.password.length < 8) {
+      setError('Your password should be at least 8 characters.');
       return;
     }
     
@@ -165,12 +174,12 @@ const CreateAccount = () => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-logo-section">
-          <img src={logo} alt="Sacco Logo" className="login-logo-image" />
+          <img src={logo} alt="TMG Shares Portal" className="login-logo-image" />
         </div>
         
         <div className="login-header">
-          <h2>Create an Account</h2>
-          <p>Register as a new member</p>
+          <h2>{showOtpField ? 'Verify OTP & set your password' : 'Create your portal account'}</h2>
+          <p>{showOtpField ? 'Step 2 of 2 · Enter your code and choose your login password.' : 'Step 1 of 2 · Enter your existing shareholder details.'}</p>
         </div>
         
         <div className="login-body">
@@ -186,9 +195,14 @@ const CreateAccount = () => {
             </Alert>
           )}
           
-          <form onSubmit={handleSignUp}>
+          <form onSubmit={(event) => {
+            if (showOtpField) return handleSignUp(event);
+            event.preventDefault();
+            return handleSendOtp();
+          }}>
+            <fieldset hidden={showOtpField} disabled={loading || showOtpField} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="form-group">
-              <label className="form-label required">Member Number</label>
+              <label className="form-label required">Shareholder Number</label>
               <input
                 type="text"
                 name="memberNo"
@@ -214,62 +228,88 @@ const CreateAccount = () => {
             </div>
 
             <div className="form-group">
-              <label className="form-label required">Email</label>
+              <label className="form-label">Registered email (optional)</label>
               <input
                 type="email"
                 name="email"
                 className="form-control"
                 value={formData.email}
                 onChange={handleChange}
-                placeholder="Enter your email address"
+                placeholder="Email already on your shareholder record"
                 disabled={showOtpField}
               />
             </div>
 
+            </fieldset>
+
             {!showOtpField ? (
+              <>
               <button 
-                type="button"
-                onClick={handleSendOtp}
+                type="submit"
                 className="login-btn"
                 disabled={loading}
               >
                 {loading ? 'Sending...' : 'Send OTP'}
               </button>
+              <button type="button" className="login-btn" disabled={loading} onClick={resumeOtp} style={{ marginTop: 12, background: '#EEF3FA', color: '#1B3A6B' }}>
+                I already have an OTP
+              </button>
+              </>
             ) : (
               <>
+                <p style={{ marginBottom: 20, color: '#475569', lineHeight: 1.6 }}>
+                  Shareholder <strong>{formData.memberNo}</strong>. Enter the code sent to your registered mobile. Codes expire after 10 minutes.
+                </p>
                 <div className="form-group">
-                  <label className="form-label required">OTP</label>
+                  <label htmlFor="registration-otp" className="form-label required">OTP code</label>
                   <input
+                    ref={otpInputRef}
+                    id="registration-otp"
                     type="text"
                     name="otp"
                     className="form-control"
                     value={formData.otp}
-                    onChange={handleChange}
-                    placeholder="Enter OTP sent to your email"
+                    onChange={(event) => setFormData({ ...formData, otp: event.target.value.replace(/\D/g, '').slice(0, 6) })}
+                    placeholder="Enter the 6-digit code sent to your mobile"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    required
+                    pattern="[0-9]{6}"
+                    disabled={loading}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label required">Password</label>
+                  <label htmlFor="registration-password" className="form-label required">Password</label>
                   <input
+                    id="registration-password"
                     type="password"
                     name="password"
                     className="form-control"
                     value={formData.password}
                     onChange={handleChange}
-                    placeholder="Create password"
+                    placeholder="Create password (at least 8 characters)"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                    disabled={loading}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label required">Confirm Password</label>
+                  <label htmlFor="registration-confirm" className="form-label required">Confirm Password</label>
                   <input
+                    id="registration-confirm"
                     type="password"
                     name="confirmPassword"
                     className="form-control"
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     placeholder="Confirm your password"
+                    autoComplete="new-password"
+                    required
+                    disabled={loading}
                   />
                 </div>
 
@@ -278,8 +318,10 @@ const CreateAccount = () => {
                   className="login-btn" 
                   disabled={loading}
                 >
-                  {loading ? 'Creating...' : 'Sign Up'}
+                  {loading ? 'Please wait...' : 'Verify OTP & create account'}
                 </button>
+                <button type="button" className="login-btn" disabled={loading} onClick={handleSendOtp} style={{ marginTop: 12 }}>Resend OTP</button>
+                <button type="button" disabled={loading} onClick={() => { setShowOtpField(false); setFormData({ ...formData, otp: '', password: '', confirmPassword: '' }); setError(''); setSuccess(''); }} style={{ marginTop: 12 }}>Correct my details</button>
               </>
             )}
           </form>

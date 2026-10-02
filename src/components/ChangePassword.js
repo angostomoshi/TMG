@@ -40,10 +40,6 @@ const ChangePassword = () => {
       return;
     }
     
-    if (formData.memberNo.trim().length < 3) {
-      setError('Please enter a valid Member Number');
-      return;
-    }
     
     setLoading(true);
     setError('');
@@ -55,7 +51,8 @@ const ChangePassword = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          memberNo: formData.memberNo.trim()
+          memberNo: formData.memberNo.trim(),
+          purpose: 'reset-password'
         })
       });
       
@@ -104,8 +101,8 @@ const ChangePassword = () => {
       return;
     }
     
-    if (formData.otp.trim().length < 4) {
-      setError('OTP must be at least 4 digits');
+    if (!/^\d{6}$/.test(formData.otp.trim())) {
+      setError('Enter the six-digit OTP');
       return;
     }
     
@@ -114,8 +111,8 @@ const ChangePassword = () => {
       return;
     }
     
-    if (formData.password.length < 4) {
-      setError('Password must be at least 4 characters long');
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters long');
       return;
     }
     
@@ -173,7 +170,7 @@ const ChangePassword = () => {
       <style>{styles.keyframes}</style>
       <div style={styles.card}>
         <div style={styles.logoSection}>
-          <img src={logo} alt="Metro Sacco Logo" style={styles.logoImage} />
+          <img src={logo} alt="TMG Shares Portal" style={styles.logoImage} />
         </div>
         
         <div style={styles.header}>
@@ -263,12 +260,12 @@ const ChangePassword = () => {
                 style={styles.formInput}
                 value={formData.password}
                 onChange={handleChange}
-                placeholder="Minimum 4 characters"
+                placeholder="Minimum 8 characters"
                 disabled={loading}
                 onFocus={(e) => e.target.style.borderColor = '#1B3A6B'}
                 onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
-              <small style={styles.inputHint}>Password must be at least 4 characters long</small>
+              <small style={styles.inputHint}>Password must be at least 8 characters long</small>
             </div>
 
             <div style={styles.formGroup}>

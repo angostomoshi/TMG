@@ -10,6 +10,7 @@ RUN npm install --production
 
 # Copy the proxy server file
 COPY proxy-server.js ./
+COPY server ./server
 
 # Expose the port the proxy server runs on
 EXPOSE 3023

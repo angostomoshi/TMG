@@ -58,9 +58,9 @@ if (!process.env.DB_PASSWORD) {
   throw new Error('DB_PASSWORD environment variable is required.');
 }
 const dbPool = new Pool({
-  host: process.env.DB_HOST || '192.168.4.10',
+  host: process.env.DB_HOST || '192.168.4.7',
   port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'metrosacco',
+  database: process.env.DB_NAME || 'metrohealth_services',
   user: process.env.DB_USER || 'centre',
   password: process.env.DB_PASSWORD,
   ssl: false,
@@ -151,6 +151,11 @@ function requireVerifiedProxyAuth(req, res, next) {
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired authentication token.' });
   }
+}
+
+if ((process.env.DB_NAME || 'metrohealth_services') === 'metrohealth_services') {
+  app.use('/api/v1', require('./server/metrohealth')({ pool: dbPool, secret: PROXY_JWT_SECRET,
+    sendOtpEmail: require('./server/metrohealth-email')(dbPool) }));
 }
 
 function addForwardedAuthorization(forwardHeaders, authHeader) {
