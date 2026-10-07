@@ -14,10 +14,10 @@ import Alert from './Alert';
 import { portalRequest } from '../services/portalApi';
 
 const CONTACT = {
-  phone: '+254 114470459',
-  phoneHref: 'tel:+254114470459',
-  email: 'info@tmgfoundation.ke',
-  emailHref: 'mailto:info@tmgfoundation.ke'
+  phone: '0739393584',
+  phoneHref: 'tel:+254739393584',
+  email: 'info@tmg.ke',
+  emailHref: 'mailto:info@tmg.ke'
 };
 
 const Dashboard = ({ userData }) => {
@@ -66,7 +66,8 @@ const Dashboard = ({ userData }) => {
         ]);
         const shareCapital = Number(capitalResponse.balance);
         const dividend = Number(dividendResponse.balance);
-        const totalHoldings = shareCapital + dividend;
+        const dividendsPaid = Number(dividendResponse.paid);
+        const dividendsDeclared = Number(dividendResponse.dividends);
 
         if (!mounted) return;
 
@@ -78,7 +79,7 @@ const Dashboard = ({ userData }) => {
         const nextMetrics = {
           shareCapital,
           dividend,
-          totalHoldings,
+          dividendsPaid, dividendsDeclared,
           loading: false,
           notice: ''
         };
@@ -94,7 +95,7 @@ const Dashboard = ({ userData }) => {
         setMetrics((current) => ({
           ...current,
           loading: false,
-          shareCapital: null, dividend: null, totalHoldings: null,
+          shareCapital: null, dividend: null, dividendsPaid: null, dividendsDeclared: null,
           notice: 'We could not load your live balances. Please refresh or sign in again.'
         }));
       }
@@ -129,33 +130,34 @@ const Dashboard = ({ userData }) => {
       icon: FaUniversity
     },
     {
-      label: 'Dividend Payable',
-      value: formatCurrency(metrics.dividend),
-      hint: metrics.loading ? 'Refreshing dividends...' : 'Latest dividend estimate',
+      label: 'Dividends',
+      value: formatCurrency(metrics.dividendsDeclared),
+      hint: metrics.loading ? 'Refreshing dividends...' : 'Recorded dividends',
       path: '/dividends',
       accent: 'amber',
       icon: FaCoins
     },
     {
-      label: 'Total Holdings',
-      value: formatCurrency(metrics.totalHoldings),
-      hint: metrics.loading ? 'Calculating total...' : 'Capital + dividend',
-      path: '/share-capital',
+      label: 'Dividends Paid',
+      value: formatCurrency(metrics.dividendsPaid),
+      hint: metrics.loading ? 'Refreshing payments...' : 'Recorded dividend payments',
+      path: '/dividends',
       accent: 'navy',
       icon: FaChartPie
     }
+    ,{label:'Balance',value:formatCurrency(metrics.dividend),hint:'Outstanding dividends',path:'/dividends',accent:'blue',icon:FaCoins}
   ], [metrics]);
 
   const quickActions = [
     { label: 'Download capital statement', description: 'Export a clean PDF for your records.', path: '/share-capital', icon: FaFileInvoiceDollar },
     { label: 'Review dividend history', description: 'See declared and payable dividends by year.', path: '/dividends', icon: FaCoins },
-    { label: 'Update your profile', description: 'Keep phone, email, and KYC details current.', path: '/profile', icon: FaUserCog }
+    { label: 'View shareholder profile', description: 'Review your contact, legal and payment details.', path: '/profile', icon: FaUserCog }
   ];
 
   const timelineItems = [
     { label: 'Profile check', text: 'Confirm your phone and email are current before payment periods.' },
-    { label: 'Dividend rule', text: 'Dividends are calculated from last year\'s eligible shares.' },
-    { label: 'Share capital', text: 'Your share capital reflects your ownership stake in the foundation.' },
+    { label: 'Dividend balance', text: 'Recorded dividends less payments received. Your share capital is shown separately.' },
+    { label: 'Share capital', text: 'Your share capital reflects your ownership stake in The Metro Group PLC.' },
     { label: 'Support', text: `For help, call ${CONTACT.phone} or email ${CONTACT.email} with your member number.` }
   ];
 
@@ -816,7 +818,7 @@ const readStoredJson = (key, fallback) => {
 };
 
 const readDashboardMetrics = () => ({
-  shareCapital: null, dividend: null, totalHoldings: null, loading: true, notice: ''
+  shareCapital: null, dividend: null, dividendsPaid: null, dividendsDeclared: null, loading: true, notice: ''
 });
 
 const firstName = (name) => {

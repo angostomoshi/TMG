@@ -31,7 +31,7 @@ test('registration opens the OTP step, focuses the input and can resume without 
   const clickText=async text=>act(async()=>{Simulate.click([...document.querySelectorAll('button')].find(button=>button.textContent===text));});
   try {
     await act(async()=>root.render(React.createElement(component.exports.default)));
-    await change('memberNo','999999');await change('mobileNo','0700000000');
+    await change('memberNo','999999');
     await act(async()=>{Simulate.submit(document.querySelector('form'));});
     assert.equal(calls,1);
     assert.equal(document.querySelector('h2').textContent,'Verify OTP & set your password');

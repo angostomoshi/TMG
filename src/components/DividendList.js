@@ -4,10 +4,10 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
 const CONTACT = {
-  phone: '+254 114470459',
-  phoneHref: 'tel:+254114470459',
-  email: 'info@tmgfoundation.ke',
-  emailHref: 'mailto:info@tmgfoundation.ke'
+  phone: '0739393584',
+  phoneHref: 'tel:+254739393584',
+  email: 'info@tmg.ke',
+  emailHref: 'mailto:info@tmg.ke'
 };
 
 function DividendList() {

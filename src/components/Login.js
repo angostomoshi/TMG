@@ -5,15 +5,15 @@ import logo from '../log.png';
 import Alert from './Alert';
 
 const CONTACT = {
-  phone: '+254 114470459',
-  phoneHref: 'tel:+254114470459',
-  email: 'info@tmgfoundation.ke',
-  emailHref: 'mailto:info@tmgfoundation.ke'
+  phone: '0739393584',
+  phoneHref: 'tel:+254739393584',
+  email: 'info@tmg.ke',
+  emailHref: 'mailto:info@tmg.ke'
 };
 
 const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
   const navigate = useNavigate();
-  const [memberNumber, setMemberNumber] = useState('');
+  const [memberNo, setMemberNo] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +31,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     e.preventDefault();
     setError('');
 
-    if (!memberNumber.trim() || !password.trim()) {
+    if (!memberNo.trim() || !password.trim()) {
       setError('Please enter your member number and password to continue.');
       return;
     }
@@ -41,7 +41,7 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
     try {
       const response = await fetch('/api/v1/auth/authenticate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberNo: memberNumber.trim(), password }),
+        body: JSON.stringify({ memberNo: memberNo.trim(), password }),
       });
       const data = await response.json();
       if (!response.ok || !data.token) throw new Error(data.message || 'Unable to sign in.');
@@ -265,15 +265,16 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
           <form onSubmit={handleSubmit}>
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                Member Number <span style={{ color: '#E31E24' }}>*</span>
+                Member number <span style={{ color: '#E31E24' }}>*</span>
               </label>
               <div style={styles.inputGroup}>
                 <span style={styles.inputIcon}>👤</span>
                 <input
                   type="text"
+                  autoComplete="username"
                   style={styles.formControl}
-                  value={memberNumber}
-                  onChange={(e) => setMemberNumber(e.target.value)}
+                  value={memberNo}
+                  onChange={(e) => setMemberNo(e.target.value)}
                   placeholder="Enter your member number"
                   autoFocus
                   disabled={loading}

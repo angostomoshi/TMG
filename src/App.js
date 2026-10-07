@@ -1,15 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   FaChartPie,
   FaUserCircle,
-  FaHandHoldingUsd,
   FaCoins,
-  FaFileInvoiceDollar,
-  FaUserFriends,
   FaUniversity,
   FaChartLine,
-  FaWallet,
   FaBars,
   FaChevronDown,
   FaSignOutAlt,
@@ -17,15 +13,10 @@ import {
 } from 'react-icons/fa';
 import Dashboard from './components/Dashboard';
 import MemberProfile from './components/MemberProfile';
-import ApplyLoan from './components/ApplyLoan';
 import DividendList from './components/DividendList';
-import LoanStatement from './components/LoanStatement';
-import GuarantorList from './components/GuarantorList';
 import ShareCapital from './components/ShareCapital';
 import ShareMarket from './components/ShareMarketConnected';
-import ShareStatement from './components/ShareStatement';
-import WithdrawableStmt from './components/WithdrawableStmt';
-import DepositMpesa from './components/DepositMpesa';
+import MarketAlerts from './components/MarketAlerts';
 import Login from './components/Login';
 import CreateAccount from './components/CreateAccount';
 import ChangePassword from './components/ChangePassword';
@@ -87,7 +78,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   const menuItems = [
     { path: '/', label: 'Dashboard', icon: FaChartPie },
-    { path: '/profile', label: 'Member Profile', icon: FaUserCircle },
+    { path: '/profile', label: 'Shareholder Profile', icon: FaUserCircle },
     { path: '/dividends', label: 'Dividends', icon: FaCoins },
     { path: '/share-capital', label: 'Share Capital', icon: FaUniversity },
     { path: '/share-market', label: 'Share Market', icon: FaChartLine },
@@ -112,7 +103,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         {/* Brand block — logo only */}
         <div className="sidebar-brand">
           <div className="sidebar-brand-logo-wrap">
-            <img src={logo} alt="TMG Foundation" className="sidebar-brand-logo" />
+            <img src={logo} alt="The Metro Group PLC" className="sidebar-brand-logo" />
           </div>
         </div>
 
@@ -228,15 +219,10 @@ const TopBar = ({ onMenuToggle }) => {
 
   const pageTitles = {
     '/': 'Dashboard',
-    '/profile': 'Member Profile',
-    '/apply-loan': 'Apply Instant Loan',
+    '/profile': 'Shareholder Profile',
+    '/share-market': 'Share Market',
     '/dividends': 'Dividends',
-    '/loan-statement': 'Loan Statement',
-    '/guarantors': 'Guarantors',
     '/share-capital': 'Share Capital',
-    '/share-statement': 'Savings Statement',
-    '/withdrawable': 'Withdrawable Statement',
-    '/deposit': 'Deposit via M-Pesa',
   };
 
   const getFirstName = () => {
@@ -342,6 +328,7 @@ const MainLayout = ({ children }) => {
       <div className="main-content">
         <TopBar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         <main className="content-wrapper">
+          <MarketAlerts />
           {children}
         </main>
       </div>
@@ -468,17 +455,12 @@ function App() {
           <Route path="/" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
           <Route path="/dashboard" element={<Dashboard userData={JSON.parse(localStorage.getItem('userData') || '{}')} />} />
           <Route path="/profile" element={<MemberProfile />} />
-          <Route path="/apply-loan" element={<ApplyLoan />} />
           <Route path="/dividends" element={<DividendList />} />
-          <Route path="/loan-statement" element={<LoanStatement />} />
-          <Route path="/guarantors" element={<GuarantorList />} />
           <Route path="/share-capital" element={<ShareCapital />} />
           <Route path="/share-market" element={<ShareMarket />} />
-          <Route path="/share-statement" element={<ShareStatement />} />
-          <Route path="/withdrawable" element={<WithdrawableStmt />} />
-          <Route path="/deposit" element={<DepositMpesa />} />
           <Route path="/create-account" element={<CreateAccount />} />
           <Route path="/change-password" element={<ChangePassword />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </MainLayout>
       {warningSecondsLeft !== null && (

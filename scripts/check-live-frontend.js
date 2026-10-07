@@ -3,7 +3,7 @@ const fs=require('fs');
 const path=require('path');
 const parser=require('@babel/parser');
 const assert=require('node:assert/strict');
-const files=['src/App.js','src/components/Login.js','src/components/Dashboard.js','src/components/MemberProfile.js','src/components/ShareMarketConnected.js','src/services/portalApi.js','src/pages/api/loan-statement.js'];
+const files=['src/App.js','src/components/Login.js','src/components/Dashboard.js','src/components/MemberProfile.js','src/components/ShareMarketConnected.js','src/components/MarketAlerts.js','src/services/portalApi.js','src/pages/api/loan-statement.js'];
 for(const file of files){
   const source=fs.readFileSync(file,'utf8');
   const ast=parser.parse(source,{sourceType:'module',plugins:['jsx']});

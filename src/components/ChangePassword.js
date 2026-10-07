@@ -6,6 +6,7 @@ const ChangePassword = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     memberNo: '',
+    channel: 'email',
     otp: '',
     password: '',
     confirmPassword: ''
@@ -36,7 +37,7 @@ const ChangePassword = () => {
   // Send OTP
   const handleSendOtp = async () => {
     if (!formData.memberNo.trim()) {
-      setError('Please enter Member Number');
+      setError('Please enter Member number');
       return;
     }
     
@@ -52,6 +53,7 @@ const ChangePassword = () => {
         },
         body: JSON.stringify({
           memberNo: formData.memberNo.trim(),
+          channel: formData.channel,
           purpose: 'reset-password'
         })
       });
@@ -92,7 +94,7 @@ const ChangePassword = () => {
     
     // Validation
     if (!formData.memberNo.trim()) {
-      setError('Please enter Member Number');
+      setError('Please enter Member number');
       return;
     }
     
@@ -131,6 +133,7 @@ const ChangePassword = () => {
         },
         body: JSON.stringify({
           memberNo: formData.memberNo.trim(),
+          channel: formData.channel,
           otp: formData.otp.trim(),
           newPassword: formData.password,
           confirmPassword: formData.confirmPassword
@@ -145,6 +148,7 @@ const ChangePassword = () => {
         // Clear form
         setFormData({
           memberNo: '',
+    channel: 'email',
           otp: '',
           password: '',
           confirmPassword: ''
@@ -194,7 +198,7 @@ const ChangePassword = () => {
           <form onSubmit={handleChangePassword}>
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
-                Member Number <span style={{color: '#E31E24'}}>*</span>
+                Member number <span style={{color: '#E31E24'}}>*</span>
               </label>
               <input
                 type="text"
@@ -210,7 +214,8 @@ const ChangePassword = () => {
               />
             </div>
 
-            {/* OTP Field - Now below Member Number */}
+            <label>Send OTP by <select style={styles.formInput} name="channel" value={formData.channel} onChange={handleChange} disabled={loading}><option value="email">Registered email</option><option value="sms">Registered phone (SMS)</option></select></label><p>The code is sent only to the contact details on your member record.</p>
+            {/* OTP verification */}
             <div style={styles.formGroup}>
               <label style={styles.formLabel}>
                 OTP Code <span style={{color: '#E31E24'}}>*</span>

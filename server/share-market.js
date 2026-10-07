@@ -47,13 +47,25 @@ function createShareMarketRouter({ pool, auth }) {
   async function event(db, actor, kind, entity) {
     await db.query('INSERT INTO share_market.events(actor,kind,entity_id) VALUES ($1,$2,$3)', [actor, kind, entity]);
   }
+  router.get('/notifications', route(async (req, res) => {
+    const result = await pool.query(`SELECT t.id,
+      CASE WHEN t.status='requested' AND (l.status<>'open' OR l.expires_at<=now()) THEN 'declined' ELSE t.status END AS status,
+      l.owner,l.side,l.capital_amount::text,
+      (t.status='requested' AND l.owner=$1 AND l.status='open' AND l.expires_at>now()) AS needs_response
+      FROM share_market.trades t JOIN share_market.listings l ON l.id=t.listing_id
+      WHERE (t.buyer=$1 OR t.seller=$1)
+      ORDER BY (t.status='requested' AND l.owner=$1 AND l.status='open' AND l.expires_at>now()) DESC,t.created_at DESC LIMIT 100`, [req.auth.memberNo]);
+    res.json({pending:result.rows.filter(row=>row.needs_response).length, activity:result.rows.slice(0,10)});
+  }));
   router.get('/', route(async (req, res) => {
     const member = await getMember(pool, req.auth.memberNo);
     const balances = await holdings(pool, req.auth.memberNo);
     const listings = await pool.query(`SELECT id,owner,side,capital_amount::text,asking_amount::text,note,
       CASE WHEN status='open' AND expires_at<=now() THEN 'expired' ELSE status END AS status,expires_at,created_at
       FROM share_market.listings WHERE parent_trade IS NULL AND (owner=$1 OR (status='open' AND expires_at>now())) ORDER BY created_at DESC LIMIT 200`, [req.auth.memberNo]);
-    const trades = await pool.query(`SELECT t.id,t.listing_id,t.buyer,t.seller,t.status,t.created_at,l.capital_amount::text,l.asking_amount::text
+    const trades = await pool.query(`SELECT t.id,t.listing_id,t.buyer,t.seller,
+      CASE WHEN t.status='requested' AND (l.status<>'open' OR l.expires_at<=now()) THEN 'declined' ELSE t.status END AS status,
+      l.owner,t.created_at,l.capital_amount::text,l.asking_amount::text
       FROM share_market.trades t JOIN share_market.listings l ON l.id=t.listing_id
       WHERE buyer=$1 OR seller=$1 ORDER BY created_at DESC LIMIT 100`, [req.auth.memberNo]);
     res.json({ memberNo: req.auth.memberNo, eligible: eligible(member), holdings: balances, listings: listings.rows, trades: trades.rows,

@@ -11,13 +11,14 @@ async function main(){
   let server;
   try{
     server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.on('listening',resolve));
-    const token=jwt.sign({memberNo:'999999',role:'USER'},process.env.JWT_SECRET,{expiresIn:60,audience:'metrohealth_services',issuer:'metrohealth-portal'});
+    const token=jwt.sign({memberNo:'999999',role:'USER',portalVersion:2},process.env.JWT_SECRET,{expiresIn:60,audience:'metrohealth_services',issuer:'metrohealth-portal'});
     const base=`http://127.0.0.1:${server.address().port}/api/v1`;
-    for(const route of ['/share-market','/member/999999','/shareCapital/sumTotal/999999','/shareCapital/999999','/dividendPayable/sumTotal/999999','/dividend/999999','/header/1']){
+    for(const route of ['/share-market/notifications','/share-market','/member/999999','/shareCapital/sumTotal/999999','/shareCapital/999999','/dividendPayable/sumTotal/999999','/dividend/999999','/header/1']){
       const response=await fetch(base+route,{headers:{Authorization:`Bearer ${token}`}});
       const body=await response.json();assert.equal(response.status,200,`${route}: ${body.message}`);
       if(route==='/share-market'){assert.ok(Array.isArray(body.listings));assert.ok(Array.isArray(body.trades));assert.equal(body.memberNo,'999999');}
-      if(route==='/member/999999')assert.equal(body.holdersName,'Joe Wanjema Test');
+      if(route==='/member/999999'){assert.equal(body.holdersName,'Joe Wanjema Test');for(const key of ['tel2','resident','tax_exempt','bank_acc','relation1','nok1_pnoneno','mode_of_dispatch','asOf'])assert.ok(Object.hasOwn(body,key),key);}
+      if(route==='/dividendPayable/sumTotal/999999'){for(const key of ['dividends','paid','balance'])assert.ok(Number.isFinite(Number(body[key])),key);assert.equal(Number(body.dividends)-Number(body.paid),Number(body.balance));}
       console.log('PASS',route);
     }
     assert.equal((await fetch(base+'/share-market')).status,401);

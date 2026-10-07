@@ -8,8 +8,7 @@ const CreateAccount = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     memberNo: '',
-    mobileNo: '',
-    email: '',
+    channel: 'email',
     password: '',
     confirmPassword: '',
     otp: ''
@@ -29,8 +28,8 @@ const CreateAccount = () => {
   }, [showOtpField]);
 
   const resumeOtp = () => {
-    if (!formData.memberNo.trim() || !formData.mobileNo.trim()) {
-      setError('Enter your shareholder number and registered mobile number first.');
+    if (!formData.memberNo.trim()) {
+      setError('Enter your member number first.');
       return;
     }
     setError('');
@@ -57,11 +56,7 @@ const CreateAccount = () => {
 
   const handleSendOtp = async () => {
     if (!formData.memberNo.trim()) {
-      setError('Please enter your member number first.');
-      return;
-    }
-    if (!formData.mobileNo.trim()) {
-      setError('Please enter the mobile number linked to your membership.');
+      setError('Please enter the member number.');
       return;
     }
     
@@ -77,8 +72,7 @@ const CreateAccount = () => {
         },
         body: JSON.stringify({
           memberNo: formData.memberNo.trim(),
-          mobileNo: formData.mobileNo.trim(),
-          email: formData.email.trim(),
+          channel: formData.channel,
           purpose: 'create-account'
         })
       });
@@ -103,19 +97,15 @@ const CreateAccount = () => {
     e.preventDefault();
     setError('');
     
-    if (!formData.memberNo.trim()) {
-      setError('Please enter your member number first.');
-      return;
-    }
     
-    if (!formData.mobileNo.trim()) {
-      setError('Please enter the mobile number linked to your membership.');
+    if (!formData.memberNo.trim()) {
+      setError('Please enter the member number.');
       return;
     }
     
     
     if (!/^\d{6}$/.test(formData.otp.trim())) {
-      setError('Please enter the six-digit OTP sent to your registered mobile.');
+      setError('Please enter the six-digit OTP sent to your registered email or phone.');
       return;
     }
     
@@ -145,8 +135,7 @@ const CreateAccount = () => {
         },
         body: JSON.stringify({
           memberNo: formData.memberNo.trim(),
-          mobileNo: formData.mobileNo.trim(),
-          email: formData.email.trim(),
+          channel: formData.channel,
           password: formData.password,
           otp: formData.otp.trim()
         })
@@ -179,7 +168,7 @@ const CreateAccount = () => {
         
         <div className="login-header">
           <h2>{showOtpField ? 'Verify OTP & set your password' : 'Create your portal account'}</h2>
-          <p>{showOtpField ? 'Step 2 of 2 · Enter your code and choose your login password.' : 'Step 1 of 2 · Enter your existing shareholder details.'}</p>
+          <p>{showOtpField ? 'Step 2 of 2 · Enter your code and choose your login password.' : 'Step 1 of 2 · Enter your member number.'}</p>
         </div>
         
         <div className="login-body">
@@ -202,7 +191,7 @@ const CreateAccount = () => {
           }}>
             <fieldset hidden={showOtpField} disabled={loading || showOtpField} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="form-group">
-              <label className="form-label required">Shareholder Number</label>
+              <label className="form-label required">Member number</label>
               <input
                 type="text"
                 name="memberNo"
@@ -214,32 +203,9 @@ const CreateAccount = () => {
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label required">Mobile Number</label>
-              <input
-                type="tel"
-                name="mobileNo"
-                className="form-control"
-                value={formData.mobileNo}
-                onChange={handleChange}
-                placeholder="Enter your mobile number"
-                disabled={showOtpField}
-              />
-            </div>
 
-            <div className="form-group">
-              <label className="form-label">Registered email (optional)</label>
-              <input
-                type="email"
-                name="email"
-                className="form-control"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Email already on your shareholder record"
-                disabled={showOtpField}
-              />
-            </div>
 
+            <label>Send OTP by <select className="form-control" name="channel" value={formData.channel} onChange={handleChange} disabled={loading || showOtpField}><option value="email">Registered email</option><option value="sms">Registered phone (SMS)</option></select></label><p>The code is sent only to the contact details on your member record.</p>
             </fieldset>
 
             {!showOtpField ? (
@@ -258,7 +224,7 @@ const CreateAccount = () => {
             ) : (
               <>
                 <p style={{ marginBottom: 20, color: '#475569', lineHeight: 1.6 }}>
-                  Shareholder <strong>{formData.memberNo}</strong>. Enter the code sent to your registered mobile. Codes expire after 10 minutes.
+                  Member <strong>{formData.memberNo}</strong>. Enter the code sent to your registered email or phone. Codes expire after 10 minutes.
                 </p>
                 <div className="form-group">
                   <label htmlFor="registration-otp" className="form-label required">OTP code</label>
