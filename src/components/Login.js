@@ -43,6 +43,10 @@ const Login = ({ onLogin, onCreateAccount, onForgotPassword }) => {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memberNo: memberNo.trim(), password }),
       });
+      const responseType = response.headers.get('content-type') || '';
+      if (!responseType.toLowerCase().includes('application/json')) {
+        throw new Error('The sign-in service is unavailable. Please contact the administrator to check the website’s API connection.');
+      }
       const data = await response.json();
       if (!response.ok || !data.token) throw new Error(data.message || 'Unable to sign in.');
       const account = data.memberNo;

@@ -149,7 +149,7 @@ const Dashboard = ({ userData }) => {
   ], [metrics]);
 
   const quickActions = [
-    { label: 'Download capital statement', description: 'Export a clean PDF for your records.', path: '/share-capital', icon: FaFileInvoiceDollar },
+    { label: 'Download share statement', description: 'Export a clean PDF for your records.', path: '/share-capital', icon: FaFileInvoiceDollar },
     { label: 'Review dividend history', description: 'See declared and payable dividends by year.', path: '/dividends', icon: FaCoins },
     { label: 'View shareholder profile', description: 'Review your contact, legal and payment details.', path: '/profile', icon: FaUserCog }
   ];

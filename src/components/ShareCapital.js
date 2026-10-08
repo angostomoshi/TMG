@@ -316,7 +316,7 @@ function ShareCapital() {
       <div ref={reportRef} className="report-container">
         <div className="report-header">
           <h1>{headerData?.organisationName || 'THE METRO GROUP FOUNDATION'}</h1>
-          <p>Share Capital Statement</p>
+          <p>Share Statement</p>
           {headerData && (
             <div className="contact-info">
               <small>{headerData.boxNo} | {headerData.postalCode}</small>

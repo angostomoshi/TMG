@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   FaChartPie,
@@ -80,7 +80,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/', label: 'Dashboard', icon: FaChartPie },
     { path: '/profile', label: 'Shareholder Profile', icon: FaUserCircle },
     { path: '/dividends', label: 'Dividends', icon: FaCoins },
-    { path: '/share-capital', label: 'Share Capital', icon: FaUniversity },
+    { path: '/share-capital', label: 'Share Statement', icon: FaUniversity },
     { path: '/share-market', label: 'Share Market', icon: FaChartLine },
   ];
 
@@ -222,7 +222,7 @@ const TopBar = ({ onMenuToggle }) => {
     '/profile': 'Shareholder Profile',
     '/share-market': 'Share Market',
     '/dividends': 'Dividends',
-    '/share-capital': 'Share Capital',
+    '/share-capital': 'Share Statement',
   };
 
   const getFirstName = () => {
@@ -340,6 +340,19 @@ const MainLayout = ({ children }) => {
    APP
    ============================================================ */
 function App() {
+  const location = useLocation();
+  useLayoutEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.querySelectorAll('.main-content, .content-wrapper').forEach(element => {
+      element.scrollTop = 0;
+      element.scrollLeft = 0;
+    });
+  }, [location.key]);
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     const wasAuthenticated = localStorage.getItem('isAuthenticated') === 'true';

@@ -1,0 +1,11 @@
+FROM node:24-alpine3.23
+WORKDIR /app
+RUN apk add --no-cache python3 make g++ ca-certificates
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY proxy-server.js ./
+COPY server ./server
+ENV NODE_ENV=production
+USER node
+EXPOSE 3023
+CMD ["node", "proxy-server.js"]
